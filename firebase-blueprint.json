@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique user ID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "description": "User profile photo URL" },
+        "status": { "type": "string", "enum": ["online", "offline", "away"], "description": "User online status" },
+        "createdAt": { "type": "number", "description": "Timestamp of account creation" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" },
+        "isBlocked": { "type": "boolean", "description": "Whether the user is blocked" },
+        "isPrivate": { "type": "boolean", "description": "Whether the user account is private" }
+      },
+      "required": ["uid", "email", "displayName", "createdAt"]
+    },
+    "channels": {
+      "title": "Channel",
+      "description": "A chat channel or group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique channel ID" },
+        "name": { "type": "string", "description": "Channel name" },
+        "description": { "type": "string", "description": "Channel description" },
+        "type": { "type": "string", "enum": ["public", "private"], "description": "Channel type" },
+        "createdBy": { "type": "string", "description": "UID of the creator" },
+        "createdAt": { "type": "number", "description": "Timestamp of creation" },
+        "members": { "type": "array", "items": { "type": "string" }, "description": "Array of member UIDs" }
+      },
+      "required": ["id", "name", "type", "createdBy", "createdAt", "members"]
+    },
+    "messages": {
+      "title": "Message",
+      "description": "A chat message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique message ID" },
+        "channelId": { "type": "string", "description": "ID of the channel" },
+        "senderId": { "type": "string", "description": "UID of the sender" },
+        "senderName": { "type": "string", "description": "Name of the sender" },
+        "senderPhoto": { "type": "string", "description": "Photo URL of the sender" },
+        "content": { "type": "string", "description": "Message content" },
+        "timestamp": { "type": "number", "description": "Timestamp of the message" },
+        "readBy": { "type": "array", "items": { "type": "string" }, "description": "Array of UIDs who read the message" },
+        "isEdited": { "type": "boolean", "description": "Whether the message was edited" }
+      },
+      "required": ["id", "channelId", "senderId", "senderName", "content", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "users",
+      "description": "User profile documents"
+    },
+    "/channels/{channelId}": {
+      "schema": "channels",
+      "description": "Channel documents"
+    },
+    "/channels/{channelId}/messages/{messageId}": {
+      "schema": "messages",
+      "description": "Message documents within a channel"
+    }
+  }
+}
