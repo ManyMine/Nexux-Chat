@@ -8,7 +8,7 @@ import { Mail, Lock, Loader2 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
 const loginSchema = z.object({
-  email: z.string().email('Email inválido'),
+  identifier: z.string().min(3, 'Digite seu e-mail, CPF, telefone ou usuário'),
   password: z.string().min(6, 'A senha deve ter pelo menos 6 caracteres'),
 });
 
@@ -46,21 +46,21 @@ export const Login: React.FC<LoginProps> = ({
         
         <div className="space-y-2">
           <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-            E-mail <span className="text-[#f23f42]">*</span>
+            E-mail, CPF, Telefone ou Usuário <span className="text-[#f23f42]">*</span>
           </label>
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
             <input
-              {...register('email')}
-              type="email"
+              {...register('identifier')}
+              type="text"
               className={cn(
                 "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
-                errors.email && "ring-2 ring-[#f23f42]"
+                errors.identifier && "ring-2 ring-[#f23f42]"
               )}
-              placeholder="exemplo@email.com"
+              placeholder="E-mail, CPF, Telefone ou @"
             />
           </div>
-          {errors.email && <p className="text-[#f23f42] text-xs mt-1">{errors.email.message}</p>}
+          {errors.identifier && <p className="text-[#f23f42] text-xs mt-1">{errors.identifier.message}</p>}
         </div>
 
         <div className="space-y-2">

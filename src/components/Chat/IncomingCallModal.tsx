@@ -59,7 +59,7 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({ call, onAc
           initial={{ scale: 0.9, y: 20 }}
           animate={{ scale: 1, y: 0 }}
           exit={{ scale: 0.9, y: 20 }}
-          className="w-full max-w-md bg-[#111214] border border-[#1e1f22] rounded-3xl shadow-2xl overflow-hidden"
+          className="w-full max-w-md bg-bg-overlay border border-border-primary rounded-3xl shadow-2xl overflow-hidden"
         >
           <div className="p-10 flex flex-col items-center text-center space-y-8">
             <div className="relative">
@@ -70,14 +70,14 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({ call, onAc
                 className="w-32 h-32 rounded-full object-cover ring-4 ring-[#5865f2] relative z-10"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute -bottom-2 -right-2 bg-[#5865f2] p-3 rounded-full border-4 border-[#111214] z-20">
+              <div className="absolute -bottom-2 -right-2 bg-[#5865f2] p-3 rounded-full border-4 border-bg-overlay z-20">
                 {call.type === 'video' ? <Video className="w-6 h-6 text-white" /> : <Phone className="w-6 h-6 text-white" />}
               </div>
             </div>
             
             <div className="space-y-2">
-              <h3 className="text-white font-bold text-3xl">{call.callerName}</h3>
-              <p className="text-[#b5bac1] text-lg animate-pulse">Chamada de {call.type === 'video' ? 'Vídeo' : 'Voz'} recebida...</p>
+              <h3 className="text-text-primary font-bold text-3xl">{call.callerName}</h3>
+              <p className="text-text-muted text-lg animate-pulse">Chamada de {call.type === 'video' ? 'Vídeo' : 'Voz'} recebida...</p>
             </div>
 
             <div className="flex items-center space-x-6 w-full pt-4">
@@ -97,7 +97,7 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({ call, onAc
           </div>
           
           {/* Ringing animation bar */}
-          <div className="h-2 w-full bg-[#1e1f22]">
+          <div className="h-2 w-full bg-bg-tertiary">
             <motion.div 
               className="h-full bg-[#5865f2]"
               initial={{ width: "0%" }}

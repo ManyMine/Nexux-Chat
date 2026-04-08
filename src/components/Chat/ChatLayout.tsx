@@ -54,7 +54,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen bg-[#313338] text-[#dbdee1] overflow-hidden font-sans relative">
+    <div className="flex h-screen bg-bg-primary text-text-secondary overflow-hidden font-sans relative">
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -71,7 +71,8 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
       {/* Sidebar */}
       <div className={cn(
         "fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0",
-        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full",
+        "w-[240px] flex-shrink-0"
       )}>
         <Sidebar 
           currentUser={currentUser}

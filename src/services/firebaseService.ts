@@ -129,7 +129,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 // --- Auth ---
 
-export const signUp = async (email: string, password: string, displayName: string) => {
+export const signUp = async (email: string, password: string, displayName: string, extra?: { securityQuestion?: string; securityAnswer?: string; cpf?: string; phone?: string; username?: string }) => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
@@ -144,7 +144,9 @@ export const signUp = async (email: string, password: string, displayName: strin
       createdAt: Date.now(),
       role: user.email === 'belepuff@gmail.com' ? 'admin' : 'user',
       isBlocked: false,
-      isPrivate: false
+      isPrivate: false,
+      canChat: true,
+      ...extra
     };
 
     if (user.photoURL) {
@@ -164,7 +166,22 @@ export const signUp = async (email: string, password: string, displayName: strin
   }
 };
 
-export const signIn = async (email: string, password: string) => {
+export const signIn = async (identifier: string, password: string) => {
+  let email = identifier;
+
+  // If identifier is not an email, try to find the user by CPF, Phone, or Username
+  if (!identifier.includes('@')) {
+    const fields = ['cpf', 'phone', 'username'];
+    for (const field of fields) {
+      const q = query(collection(db, USERS_COLLECTION), where(field, '==', identifier), limit(1));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        email = snapshot.docs[0].data().email;
+        break;
+      }
+    }
+  }
+
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
   
@@ -188,7 +205,8 @@ export const signIn = async (email: string, password: string) => {
       createdAt: Date.now(),
       role: user.email === 'belepuff@gmail.com' ? 'admin' : 'user',
       isBlocked: false,
-      isPrivate: false
+      isPrivate: false,
+      canChat: true
     };
 
     if (user.photoURL) {
@@ -228,7 +246,8 @@ export const signInWithGoogle = async () => {
       createdAt: Date.now(),
       role: user.email === 'belepuff@gmail.com' ? 'admin' : 'user',
       isBlocked: false,
-      isPrivate: false
+      isPrivate: false,
+      canChat: true
     };
 
     if (user.photoURL) {
@@ -257,6 +276,15 @@ export const logOut = async () => {
 export const updateUserStatus = async (userId: string, status: 'online' | 'offline' | 'away') => {
   try {
     await updateDoc(doc(db, USERS_COLLECTION, userId), { status });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${userId}`);
+    throw error;
+  }
+};
+
+export const toggleChatAccess = async (userId: string, canChat: boolean) => {
+  try {
+    await updateDoc(doc(db, USERS_COLLECTION, userId), { canChat });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${userId}`);
     throw error;
@@ -292,6 +320,53 @@ export const updateUserPrivacy = async (userId: string, isPrivate: boolean) => {
     await updateDoc(doc(db, USERS_COLLECTION, userId), { isPrivate });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${userId}`);
+    throw error;
+  }
+};
+
+export const updateUserProfile = async (userId: string, data: Partial<UserProfile>) => {
+  try {
+    const user = auth.currentUser;
+    if (user && userId === user.uid) {
+      if (data.displayName) {
+        await updateProfile(user, { displayName: data.displayName });
+      }
+      if (data.photoURL) {
+        await updateProfile(user, { photoURL: data.photoURL });
+      }
+    }
+    await updateDoc(doc(db, USERS_COLLECTION, userId), data);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${userId}`);
+    throw error;
+  }
+};
+
+export const updateUserPassword = async (password: string) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Usuário não autenticado");
+  try {
+    const { updatePassword } = await import('firebase/auth');
+    await updatePassword(user, password);
+  } catch (error: any) {
+    if (error.code === 'auth/requires-recent-login') {
+      throw new Error('Esta operação requer um login recente. Por favor, saia e entre novamente.');
+    }
+    throw error;
+  }
+};
+
+export const updateUserEmail = async (email: string) => {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Usuário não autenticado");
+  try {
+    const { updateEmail } = await import('firebase/auth');
+    await updateEmail(user, email);
+    await updateDoc(doc(db, USERS_COLLECTION, user.uid), { email });
+  } catch (error: any) {
+    if (error.code === 'auth/requires-recent-login') {
+      throw new Error('Esta operação requer um login recente. Por favor, saia e entre novamente.');
+    }
     throw error;
   }
 };
@@ -479,6 +554,68 @@ export const updateCallStatus = async (callId: string, status: Call['status']) =
     handleFirestoreError(error, OperationType.UPDATE, `${CALLS_COLLECTION}/${callId}`);
     throw error;
   }
+};
+
+export const saveOffer = async (callId: string, offer: RTCSessionDescriptionInit) => {
+  try {
+    await updateDoc(doc(db, CALLS_COLLECTION, callId), { offer });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CALLS_COLLECTION}/${callId}`);
+    throw error;
+  }
+};
+
+export const saveAnswer = async (callId: string, answer: RTCSessionDescriptionInit) => {
+  try {
+    await updateDoc(doc(db, CALLS_COLLECTION, callId), { answer });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CALLS_COLLECTION}/${callId}`);
+    throw error;
+  }
+};
+
+export const addIceCandidate = async (callId: string, candidate: RTCIceCandidate, type: 'caller' | 'callee') => {
+  try {
+    const colName = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
+    await addDoc(collection(db, CALLS_COLLECTION, callId, colName), candidate.toJSON());
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, `${CALLS_COLLECTION}/${callId}`);
+    throw error;
+  }
+};
+
+export const listenForSignaling = (callId: string, callback: (data: any) => void) => {
+  return onSnapshot(doc(db, CALLS_COLLECTION, callId), (snapshot) => {
+    if (snapshot.exists()) {
+      callback(snapshot.data());
+    }
+  });
+};
+
+export const listenForIceCandidates = (callId: string, type: 'caller' | 'callee', callback: (candidate: RTCIceCandidateInit) => void) => {
+  const colName = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
+  const q = query(collection(db, CALLS_COLLECTION, callId, colName));
+  
+  return onSnapshot(q, (snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      if (change.type === 'added') {
+        callback(change.doc.data() as RTCIceCandidateInit);
+      }
+    });
+  });
+};
+
+export const getUserByEmail = async (email: string) => {
+  const q = query(collection(db, USERS_COLLECTION), where('email', '==', email), limit(1));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+  return { uid: snapshot.docs[0].id, ...snapshot.docs[0].data() } as UserProfile;
+};
+
+export const verifySecurityAnswer = async (email: string, answer: string) => {
+  const user = await getUserByEmail(email);
+  if (!user) return false;
+  return user.securityAnswer?.toLowerCase() === answer.toLowerCase();
 };
 
 export const listenForIncomingCalls = (userId: string, callback: (call: Call) => void) => {

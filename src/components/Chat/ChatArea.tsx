@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Hash, Send, PlusCircle, Gift, Sticker, Smile, Trash2, CheckCheck, Pencil, X, Copy, MessageSquare, Edit3, VolumeX, Users, PlusSquare } from 'lucide-react';
+import { Hash, Send, PlusCircle, Gift, Sticker, Smile, Trash2, CheckCheck, Pencil, X, Copy, MessageSquare, Edit3, VolumeX, Users, PlusSquare, Shield, ShieldOff, Search } from 'lucide-react';
 import { Call, Channel, Message, UserProfile } from '@/src/types';
 import { cn } from '@/src/lib/utils';
 import { DEFAULT_AVATAR } from '@/src/constants';
@@ -9,7 +9,7 @@ import { UserList } from './UserList';
 import { ChannelSettings } from './ChannelSettings';
 import { CallView } from './CallView';
 import { IncomingCallModal } from './IncomingCallModal';
-import { updateChannel, deleteChannel, deleteMessage, markMessageAsRead, getUsers, editMessage, createPrivateChannel, createChannel, startCall, updateCallStatus, listenForIncomingCalls } from '@/src/services/firebaseService';
+import { updateChannel, deleteChannel, deleteMessage, markMessageAsRead, getUsers, editMessage, createPrivateChannel, createChannel, startCall, updateCallStatus, listenForIncomingCalls, toggleChatAccess } from '@/src/services/firebaseService';
 
 interface ChatAreaProps {
   activeChannel: Channel | null;
@@ -48,6 +48,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, message: Message } | null>(null);
   const [userContextMenu, setUserContextMenu] = useState<{ x: number, y: number, user: UserProfile } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -96,6 +101,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const isAdmin = currentUser.role === 'admin';
+    const canChat = currentUser.canChat !== false || isAdmin;
+
+    if (!canChat) {
+      alert("Você não tem permissão para enviar mensagens.");
+      return;
+    }
+
     if (editingMessageId && activeChannel) {
       if (editContent.trim()) {
         await editMessage(activeChannel.id, editingMessageId, editContent);
@@ -203,20 +217,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   if (!activeChannel) {
     return (
-      <div className="flex-1 bg-[#313338] flex flex-col items-center justify-center p-8 text-center space-y-4">
+      <div className="flex-1 bg-bg-primary flex flex-col items-center justify-center p-8 text-center space-y-4">
         <div className="bg-[#5865f2] p-6 rounded-full shadow-2xl">
           <Hash className="w-16 h-16 text-white" />
         </div>
-        <h2 className="text-2xl font-bold text-white">Bem-vindo ao Nexus Chat!</h2>
-        <p className="text-[#b5bac1] max-w-md">
+        <h2 className="text-2xl font-bold text-text-primary">Bem-vindo ao Nexus Chat!</h2>
+        <p className="text-text-muted max-w-md">
           Selecione um canal na barra lateral para começar a conversar ou crie um novo para reunir seus amigos.
         </p>
       </div>
     );
   }
 
+  const filteredMessages = searchQuery.trim() 
+    ? messages.filter(m => m.content.toLowerCase().includes(searchQuery.toLowerCase()))
+    : [];
+
   return (
-    <div className="flex-1 bg-[#313338] flex flex-col h-full overflow-hidden relative">
+    <div className="flex-1 bg-bg-primary flex flex-col h-full overflow-hidden relative">
       {/* Header */}
       <ChannelHeader 
         channel={activeChannel}
@@ -226,12 +244,81 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         showUsers={showUsers}
         onToggleSidebar={onToggleSidebar}
         onStartCall={onStartCall}
+        onSearch={(query) => {
+          setSearchQuery(query);
+          setIsSearching(!!query);
+        }}
       />
 
-      <div className="flex flex-1 overflow-hidden flex-col">
+      <div className="flex flex-1 overflow-hidden flex-col relative">
+        {/* Search Results Overlay */}
+        <AnimatePresence>
+          {isSearching && searchQuery && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute inset-x-0 top-0 z-30 bg-bg-secondary border-b border-border-primary shadow-2xl max-h-[60%] overflow-y-auto"
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-text-secondary font-bold flex items-center">
+                    <Search className="w-4 h-4 mr-2" />
+                    Resultados para "{searchQuery}" ({filteredMessages.length})
+                  </h3>
+                  <button 
+                    onClick={() => {
+                      setIsSearching(false);
+                      setSearchQuery('');
+                    }}
+                    className="text-text-muted hover:text-text-primary"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                {filteredMessages.length === 0 ? (
+                  <div className="text-center py-8 text-text-muted">
+                    Nenhuma mensagem encontrada.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {filteredMessages.map(msg => (
+                      <div 
+                        key={msg.id}
+                        className="p-3 bg-bg-primary rounded hover:bg-bg-tertiary cursor-pointer transition-colors group"
+                        onClick={() => {
+                          setIsSearching(false);
+                          setSearchQuery('');
+                          // In a real app, we'd scroll to the message
+                        }}
+                      >
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="font-bold text-text-primary text-sm">{msg.senderName}</span>
+                          <span className="text-[10px] text-text-muted">
+                            {new Date(msg.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-sm text-text-secondary break-words">
+                          {msg.content.split(new RegExp(`(${searchQuery})`, 'gi')).map((part, i) => 
+                            part.toLowerCase() === searchQuery.toLowerCase() 
+                              ? <span key={i} className="bg-[#f2bc1b]/30 text-[#f2bc1b] rounded px-0.5">{part}</span>
+                              : part
+                          )}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {activeCall && activeCall.channel.id === activeChannel.id && (
           <div className="h-[40vh] min-h-[300px] w-full shrink-0">
             <CallView 
+              callId={activeCall.id}
               channel={activeCall.channel} 
               currentUser={currentUser} 
               allUsers={allUsers}
@@ -245,16 +332,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           <div className="flex-1 flex flex-col h-full min-w-0">
           <div 
             ref={scrollRef}
-            className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-[#1e1f22] scrollbar-track-transparent"
+            className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-border-primary scrollbar-track-transparent"
           >
             {/* Typing Indicator */}
             {typingUsers.length > 0 && (
-              <div className="text-xs text-[#949ba4] italic px-4">
-                {typingUsers.join(', ')} {typingUsers.length === 1 ? 'está' : 'estão'} digitando...
+              <div className="text-xs text-text-muted italic px-4 py-1">
+                {typingUsers.length > 2 
+                  ? 'Vários usuários estão digitando...' 
+                  : `${typingUsers.join(' e ')} ${typingUsers.length === 1 ? 'está' : 'estão'} digitando...`}
               </div>
             )}
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-[#b5bac1] space-y-4">
+              <div className="flex flex-col items-center justify-center h-full text-text-muted space-y-4">
                  {activeChannel.type === 'private' && otherUser ? (
                    <>
                      <img 
@@ -263,15 +352,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                        className="w-24 h-24 rounded-full object-cover mb-2"
                        referrerPolicy="no-referrer"
                      />
-                     <p className="text-lg font-bold text-white">Privado ({currentUser.displayName} com {otherUser.displayName})</p>
+                     <p className="text-lg font-bold text-text-primary">Privado ({currentUser.displayName} com {otherUser.displayName})</p>
                      <p className="text-sm">Este é o começo do seu histórico de mensagens diretas com @{otherUser.displayName}.</p>
                    </>
                  ) : (
                    <>
-                     <div className="bg-[#4e5058] p-4 rounded-full">
-                        <Hash className="w-12 h-12 text-[#dbdee1]" />
+                     <div className="bg-bg-tertiary p-4 rounded-full">
+                        <Hash className="w-12 h-12 text-text-secondary" />
                      </div>
-                     <p className="text-lg font-bold text-white">Este é o começo do canal #{activeChannel.name}</p>
+                     <p className="text-lg font-bold text-text-primary">Este é o começo do canal #{activeChannel.name}</p>
                      <p className="text-sm">Envie uma mensagem para começar!</p>
                    </>
                  )}
@@ -294,9 +383,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     onTouchEnd={handleTouchEnd}
                     onTouchMove={handleTouchEnd}
                     className={cn(
-                      "flex items-start space-x-4 group hover:bg-[#2e3035]/50 -mx-4 px-4 py-1 transition-colors relative",
+                      "flex items-start space-x-4 group hover:bg-bg-secondary/50 -mx-4 px-4 py-1 transition-colors relative",
                       !isSameUserAsPrev && "mt-4",
-                      contextMenu?.message.id === msg.id && "bg-[#2e3035]"
+                      contextMenu?.message.id === msg.id && "bg-bg-secondary"
                     )}
                   >
                     {!isSameUserAsPrev ? (
@@ -308,36 +397,38 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       />
                     ) : (
                       <div className="w-10 flex-shrink-0 flex justify-center opacity-0 group-hover:opacity-100">
-                        <span className="text-[10px] text-[#949ba4] mt-1.5">{time}</span>
+                        <span className="text-[10px] text-text-muted mt-1.5">{time}</span>
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
                       {!isSameUserAsPrev && (
                         <div className="flex items-center space-x-2 mb-0.5">
-                          <span className="font-bold text-white hover:underline cursor-pointer">{msg.senderName}</span>
-                          <span className="text-[10px] text-[#949ba4]">{time}</span>
+                          <span className="font-bold text-text-primary hover:underline cursor-pointer">{msg.senderName}</span>
+                          <span className="text-[10px] text-text-muted">{time}</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between group/msg">
-                        <p className="text-[#dbdee1] break-words leading-relaxed flex-1">
+                        <p className="text-text-secondary break-words leading-relaxed flex-1 whitespace-pre-wrap">
                           {msg.content}
-                          {msg.isEdited && <span className="text-[10px] text-[#949ba4] ml-1">(editado)</span>}
+                          {msg.isEdited && <span className="text-[10px] text-text-muted ml-1">(editado)</span>}
                         </p>
                         
                         {/* Actions on hover */}
-                        <div className="hidden group-hover:flex items-center space-x-2 bg-[#313338] border border-[#1e1f22] rounded-md px-2 py-1 shadow-lg absolute right-4 top-0 -translate-y-1/2 z-10">
-                          {isMyMessage && (
+                        <div className="hidden group-hover:flex items-center space-x-2 bg-bg-primary border border-border-primary rounded-md px-2 py-1 shadow-lg absolute right-4 top-0 -translate-y-1/2 z-10">
+                          {(isMyMessage || currentUser.role === 'admin') && (
                             <>
-                              <button 
-                                onClick={() => handleEditClick(msg)}
-                                className="text-[#949ba4] hover:text-[#dbdee1] transition-colors p-1"
-                                title="Editar mensagem"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
+                              {isMyMessage && (
+                                <button 
+                                  onClick={() => handleEditClick(msg)}
+                                  className="text-text-muted hover:text-text-secondary transition-colors p-1"
+                                  title="Editar mensagem"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
                               <button 
                                 onClick={() => setDeletingMessageId(msg.id)}
-                                className="text-[#949ba4] hover:text-[#f23f42] transition-colors p-1"
+                                className="text-text-muted hover:text-[#f23f42] transition-colors p-1"
                                 title="Excluir mensagem"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -347,10 +438,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           <div className="relative group/read">
                             <CheckCheck className={cn(
                               "w-4 h-4",
-                              msg.readBy && msg.readBy.length > 0 ? "text-[#5865f2]" : "text-[#949ba4]"
+                              msg.readBy && msg.readBy.length > 0 ? "text-[#5865f2]" : "text-text-muted"
                             )} />
                             {msg.readBy && msg.readBy.length > 0 && (
-                              <div className="absolute bottom-full right-0 mb-2 hidden group-hover/read:block bg-[#111214] text-white text-[10px] p-2 rounded shadow-xl whitespace-nowrap z-20">
+                              <div className="absolute bottom-full right-0 mb-2 hidden group-hover/read:block bg-bg-overlay text-text-primary text-[10px] p-2 rounded shadow-xl whitespace-nowrap z-20">
                                 <p className="font-bold mb-1">Lido por:</p>
                                 {readByUsers.map(u => (
                                   <div key={u.uid} className="flex items-center space-x-1 mb-0.5">
@@ -382,7 +473,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       {isMyMessage && msg.readBy && msg.readBy.length > 0 && (
                         <div className="flex items-center space-x-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <CheckCheck className="w-3 h-3 text-[#5865f2]" />
-                          <span className="text-[10px] text-[#949ba4]">
+                          <span className="text-[10px] text-text-muted">
                             Lido por {msg.readBy.length} {msg.readBy.length === 1 ? 'pessoa' : 'pessoas'}
                           </span>
                         </div>
@@ -391,13 +482,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                     {/* Deletion Confirmation Overlay */}
                     {deletingMessageId === msg.id && (
-                      <div className="absolute inset-0 bg-[#313338]/90 flex items-center justify-center z-20 rounded-lg border border-[#f23f42]/30">
+                      <div className="absolute inset-0 bg-bg-primary/90 flex items-center justify-center z-20 rounded-lg border border-[#f23f42]/30">
                         <div className="flex items-center space-x-4 px-4">
-                          <span className="text-sm font-medium text-white">Excluir esta mensagem?</span>
+                          <span className="text-sm font-medium text-text-primary">Excluir esta mensagem?</span>
                           <div className="flex items-center space-x-2">
                             <button 
                               onClick={() => setDeletingMessageId(null)}
-                              className="text-xs text-white hover:underline px-2 py-1"
+                              className="text-xs text-text-primary hover:underline px-2 py-1"
                             >
                               Cancelar
                             </button>
@@ -425,9 +516,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           {/* Message Input */}
           <div className="p-4 pt-0">
             {editingMessageId && (
-              <div className="flex items-center justify-between bg-[#2b2d31] px-4 py-2 rounded-t-lg border-b border-[#1e1f22]">
-                <span className="text-xs text-[#dbdee1]">Editando mensagem...</span>
-                <button onClick={handleCancelEdit} className="text-[#949ba4] hover:text-[#dbdee1]">
+              <div className="flex items-center justify-between bg-bg-secondary px-4 py-2 rounded-t-lg border-b border-border-primary">
+                <span className="text-xs text-text-secondary">Editando mensagem...</span>
+                <button onClick={handleCancelEdit} className="text-text-muted hover:text-text-secondary">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -435,12 +526,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             <form 
               onSubmit={handleSubmit}
               className={cn(
-                "bg-[#383a40] px-4 py-2.5 flex items-center space-x-4 shadow-sm",
+                "bg-bg-tertiary px-4 py-2.5 flex items-center space-x-4 shadow-sm",
                 editingMessageId ? "rounded-b-lg" : "rounded-lg"
               )}
             >
               {!editingMessageId && (
-                <button type="button" onClick={handleFileClick} className="text-[#b5bac1] hover:text-white transition-colors">
+                <button type="button" onClick={handleFileClick} className="text-text-muted hover:text-text-primary transition-colors">
                   <PlusCircle className="w-6 h-6" />
                 </button>
               )}
@@ -456,18 +547,129 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               />
               <input
                 id="chat-input"
+                disabled={currentUser.canChat === false && currentUser.role !== 'admin'}
                 value={editingMessageId ? editContent : input}
                 onChange={editingMessageId ? (e) => setEditContent(e.target.value) : handleInputChange}
-                placeholder={editingMessageId ? "Editar mensagem..." : `Conversar em #${activeChannel.name}`}
-                className="flex-1 bg-transparent border-none outline-none text-[#dbdee1] placeholder-[#949ba4] text-sm"
+                placeholder={currentUser.canChat === false && currentUser.role !== 'admin' ? "Chat desativado para você" : (editingMessageId ? "Editar mensagem..." : `Conversar em #${activeChannel.name}`)}
+                className="flex-1 bg-transparent border-none outline-none text-text-secondary placeholder-text-muted text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 autoComplete="off"
               />
-              <div className="flex items-center space-x-3 text-[#b5bac1]">
+              <div className="flex items-center space-x-3 text-text-muted relative">
                 {!editingMessageId && (
                   <>
-                    <button type="button" className="hover:text-white transition-colors"><Gift className="w-5 h-5" /></button>
-                    <button type="button" className="hover:text-white transition-colors"><Sticker className="w-5 h-5" /></button>
-                    <button type="button" className="hover:text-white transition-colors"><Smile className="w-5 h-5" /></button>
+                    <div className="relative">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowGiftPicker(!showGiftPicker)}
+                        className={cn("hover:text-text-primary transition-colors", showGiftPicker && "text-[#f2bc1b]")}
+                      >
+                        <Gift className="w-5 h-5" />
+                      </button>
+                      <AnimatePresence>
+                        {showGiftPicker && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-lg shadow-2xl p-4 w-64 z-50"
+                          >
+                            <h4 className="text-text-primary font-bold text-sm mb-2">Enviar Presente</h4>
+                            <div className="grid grid-cols-3 gap-2">
+                              {['🎁', '💎', '⭐', '🎈', '🍰', '🍫'].map(gift => (
+                                <button 
+                                  key={gift}
+                                  type="button"
+                                  onClick={() => {
+                                    onSendMessage(`Enviou um presente: ${gift}`);
+                                    setShowGiftPicker(false);
+                                  }}
+                                  className="text-2xl p-2 hover:bg-bg-tertiary rounded transition-colors"
+                                >
+                                  {gift}
+                                </button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <div className="relative">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowGifPicker(!showGifPicker)}
+                        className={cn("hover:text-text-primary transition-colors", showGifPicker && "text-[#23a559]")}
+                      >
+                        <Sticker className="w-5 h-5" />
+                      </button>
+                      <AnimatePresence>
+                        {showGifPicker && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-lg shadow-2xl p-4 w-72 z-50"
+                          >
+                            <h4 className="text-text-primary font-bold text-sm mb-2">GIFs Populares</h4>
+                            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+                              {[
+                                'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJqZ3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKMGpxx6fG/giphy.gif',
+                                'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJqZ3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l0HlHFRbmaZtBRhXG/giphy.gif',
+                                'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJqZ3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKVUn7iM8FMEU24/giphy.gif'
+                              ].map((url, i) => (
+                                <img 
+                                  key={i}
+                                  src={url} 
+                                  alt="gif" 
+                                  className="w-full h-24 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                                  onClick={() => {
+                                    onSendMessage(url);
+                                    setShowGifPicker(false);
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    <div className="relative">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className={cn("hover:text-text-primary transition-colors", showEmojiPicker && "text-[#f2bc1b]")}
+                      >
+                        <Smile className="w-5 h-5" />
+                      </button>
+                      <AnimatePresence>
+                        {showEmojiPicker && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.9 }}
+                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-lg shadow-2xl p-4 w-64 z-50"
+                          >
+                            <div className="grid grid-cols-6 gap-2">
+                              {['😀', '😂', '😍', '🤔', '😎', '😭', '👍', '🔥', '❤️', '✨', '🚀', '🎉'].map(emoji => (
+                                <button 
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => {
+                                    if (editingMessageId) setEditContent(prev => prev + emoji);
+                                    else setInput(prev => prev + emoji);
+                                    setShowEmojiPicker(false);
+                                  }}
+                                  className="text-xl p-1 hover:bg-bg-tertiary rounded transition-colors"
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </>
                 )}
                 <button 
@@ -475,14 +677,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   disabled={editingMessageId ? !editContent.trim() : !input.trim()}
                   className={cn(
                     "p-1.5 rounded-full transition-all",
-                    (editingMessageId ? editContent.trim() : input.trim()) ? "bg-[#5865f2] text-white" : "text-[#b5bac1]"
+                    (editingMessageId ? editContent.trim() : input.trim()) ? "bg-[#5865f2] text-white" : "text-text-muted"
                   )}
                 >
                   <Send className="w-4 h-4" />
                 </button>
               </div>
             </form>
-            <p className="text-[10px] text-[#949ba4] mt-1 ml-4">
+            <p className="text-[10px] text-text-muted mt-1 ml-4">
               {editingMessageId ? (
                 <>Pressione <span className="font-bold">Enter</span> para salvar • <span className="font-bold cursor-pointer hover:underline" onClick={handleCancelEdit}>Esc</span> para cancelar</>
               ) : (
@@ -517,6 +719,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         onDelete={handleDeleteChannel}
         onUpdate={handleUpdateChannel}
         isOwner={activeChannel.createdBy === currentUser.uid}
+        isAdmin={currentUser.role === 'admin'}
       />
 
       {/* Context Menu */}
@@ -531,13 +734,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               top: Math.min(contextMenu.y, window.innerHeight - 300), 
               left: Math.min(contextMenu.x, window.innerWidth - 260) 
             }}
-            className="fixed z-50 w-64 bg-[#111214] border border-[#1e1f22] rounded-md shadow-2xl py-1.5"
+            className="fixed z-50 w-64 bg-bg-overlay border border-border-primary rounded-md shadow-2xl py-1.5"
             onClick={(e) => e.stopPropagation()}
           >
             {contextMenu.message.senderId !== currentUser.uid && (
               <button 
                 onClick={() => handleCreateDM(contextMenu.message.senderId)}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
               >
                 <span>Converter em Mensagem direta</span>
                 <MessageSquare className="w-4 h-4" />
@@ -549,7 +752,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 setShowSettings(true); 
                 setContextMenu(null); 
               }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
             >
               <span>Renomear</span>
               <Edit3 className="w-4 h-4" />
@@ -560,7 +763,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 alert(`Notificações de ${activeChannel?.name} silenciadas localmente.`); 
                 setContextMenu(null); 
               }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
             >
               <span>Silenciar</span>
               <VolumeX className="w-4 h-4" />
@@ -574,7 +777,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 }
                 setContextMenu(null); 
               }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
             >
               <span>Criar grupo</span>
               <Users className="w-4 h-4" />
@@ -588,13 +791,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 }
                 setContextMenu(null); 
               }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
             >
               <span>Criar canal</span>
               <PlusSquare className="w-4 h-4" />
             </button>
 
-            <div className="h-px bg-[#1e1f22] my-1 mx-2" />
+            <div className="h-px bg-border-primary my-1 mx-2" />
 
             {contextMenu.message.senderId === currentUser.uid && (
               <>
@@ -603,12 +806,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     handleEditClick(contextMenu.message);
                     setContextMenu(null);
                   }}
-                  className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
                 >
                   <span>Editar Mensagem</span>
                   <Pencil className="w-4 h-4" />
                 </button>
-                <div className="h-px bg-[#1e1f22] my-1 mx-2" />
+                <div className="h-px bg-border-primary my-1 mx-2" />
               </>
             )}
             <button
@@ -616,14 +819,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 navigator.clipboard.writeText(contextMenu.message.content);
                 setContextMenu(null);
               }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
             >
               <span>Copiar Texto</span>
               <Copy className="w-4 h-4" />
             </button>
             {contextMenu.message.senderId === currentUser.uid && (
               <>
-                <div className="h-px bg-[#1e1f22] my-1 mx-2" />
+                <div className="h-px bg-border-primary my-1 mx-2" />
                 <button
                   onClick={() => {
                     setDeletingMessageId(contextMenu.message.id);
@@ -651,11 +854,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               top: Math.min(userContextMenu.y, window.innerHeight - 200), 
               left: Math.min(userContextMenu.x, window.innerWidth - 200) 
             }}
-            className="fixed z-50 w-48 bg-[#111214] border border-[#1e1f22] rounded-md shadow-2xl py-1.5"
+            className="fixed z-50 w-48 bg-bg-overlay border border-border-primary rounded-md shadow-2xl py-1.5"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-3 py-2 border-b border-[#1e1f22] mb-1">
-              <span className="font-bold text-white text-sm">{userContextMenu.user.displayName}</span>
+            <div className="px-3 py-2 border-b border-border-primary mb-1">
+              <span className="font-bold text-text-primary text-sm">{userContextMenu.user.displayName}</span>
             </div>
             {userContextMenu.user.uid !== currentUser.uid && (
               <button 
@@ -663,10 +866,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   handleCreateDM(userContextMenu.user.uid);
                   setUserContextMenu(null);
                 }}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
               >
                 <span>Mensagem Direta</span>
                 <MessageSquare className="w-4 h-4" />
+              </button>
+            )}
+            {userContextMenu.user.uid !== currentUser.uid && currentUser.role === 'admin' && (
+              <button 
+                onClick={async () => {
+                  const newStatus = userContextMenu.user.canChat === false;
+                  await toggleChatAccess(userContextMenu.user.uid, newStatus);
+                  setUserContextMenu(null);
+                }}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
+              >
+                <span>{userContextMenu.user.canChat === false ? 'Liberar Chat' : 'Bloquear Chat'}</span>
+                {userContextMenu.user.canChat === false ? <Shield className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
               </button>
             )}
             <button 
@@ -674,7 +890,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 alert(`Perfil de ${userContextMenu.user.displayName}\nStatus: ${userContextMenu.user.status}`); 
                 setUserContextMenu(null); 
               }}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
             >
               <span>Perfil</span>
               <Users className="w-4 h-4" />
@@ -685,7 +901,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   alert(`Usuário ${userContextMenu.user.displayName} silenciado localmente.`); 
                   setUserContextMenu(null); 
                 }}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#dbdee1] hover:bg-[#5865f2] hover:text-white transition-colors group"
+                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
               >
                 <span>Silenciar</span>
                 <VolumeX className="w-4 h-4" />

@@ -8,6 +8,17 @@ export interface UserProfile {
   role?: 'admin' | 'user';
   isBlocked?: boolean;
   isPrivate?: boolean;
+  canChat?: boolean;
+  securityQuestion?: string;
+  securityAnswer?: string;
+  cpf?: string;
+  phone?: string;
+  username?: string; // For "@" handle
+  background?: {
+    type: 'color' | 'video' | 'gif';
+    value: string; // hex color or URL
+  };
+  theme?: 'dark' | 'light';
 }
 
 export interface Channel {

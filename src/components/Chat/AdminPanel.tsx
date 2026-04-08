@@ -93,11 +93,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white flex items-center">
+        <h2 className="text-xl font-bold text-text-primary flex items-center">
           <ShieldAlert className="w-6 h-6 mr-2 text-[#f23f42]" />
           Painel de Administração
         </h2>
-        <p className="text-[#b5bac1] mt-1">Gerencie usuários, permissões e configurações do sistema.</p>
+        <p className="text-text-muted mt-1">Gerencie usuários, permissões e configurações do sistema.</p>
       </div>
 
       {message && (
@@ -110,9 +110,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
         </div>
       )}
 
-      <div className="bg-[#2b2d31] rounded-lg border border-[#1e1f22] overflow-hidden">
-        <div className="p-4 border-b border-[#1e1f22] flex justify-between items-center bg-[#1e1f22]/50">
-          <h3 className="font-bold text-white">Usuários Cadastrados ({users.length})</h3>
+      <div className="bg-bg-secondary rounded-lg border border-border-primary overflow-hidden">
+        <div className="p-4 border-b border-border-primary flex justify-between items-center bg-bg-tertiary/50">
+          <h3 className="font-bold text-text-primary">Usuários Cadastrados ({users.length})</h3>
           <button 
             onClick={fetchUsers}
             className="text-xs bg-[#5865f2] hover:bg-[#4752c4] text-white px-3 py-1.5 rounded transition-colors"
@@ -126,9 +126,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
             <Loader2 className="w-8 h-8 text-[#5865f2] animate-spin" />
           </div>
         ) : (
-          <div className="divide-y divide-[#1e1f22]">
+          <div className="divide-y divide-border-primary">
             {users.map(user => (
-              <div key={user.uid} className="p-4 flex items-center justify-between hover:bg-[#313338]/50 transition-colors">
+              <div key={user.uid} className="p-4 flex items-center justify-between hover:bg-bg-primary/50 transition-colors">
                 <div className="flex items-center space-x-3">
                   <div className="relative">
                     <img 
@@ -138,14 +138,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                       referrerPolicy="no-referrer"
                     />
                     {user.role === 'admin' && (
-                      <div className="absolute -bottom-1 -right-1 bg-[#2b2d31] rounded-full p-0.5">
+                      <div className="absolute -bottom-1 -right-1 bg-bg-secondary rounded-full p-0.5">
                         <Shield className="w-3.5 h-3.5 text-[#f1c40f]" />
                       </div>
                     )}
                   </div>
                   <div>
                     <div className="flex items-center space-x-2">
-                      <span className={cn("font-bold", user.isBlocked ? "text-[#949ba4] line-through" : "text-white")}>
+                      <span className={cn("font-bold", user.isBlocked ? "text-text-muted line-through" : "text-text-primary")}>
                         {user.displayName}
                       </span>
                       {user.role === 'admin' && (
@@ -159,7 +159,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-[#b5bac1]">{user.email || 'Sem e-mail'}</span>
+                    <span className="text-xs text-text-muted">{user.email || 'Sem e-mail'}</span>
                   </div>
                 </div>
 
@@ -167,7 +167,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   <button
                     onClick={() => handleSendRecovery(user)}
                     disabled={actionLoading !== null || !user.email}
-                    className="p-2 text-[#b5bac1] hover:text-white hover:bg-[#4e5058] rounded transition-colors disabled:opacity-50"
+                    className="p-2 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
                     title="Enviar e-mail de recuperação"
                   >
                     {actionLoading === `recovery-${user.uid}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
@@ -180,7 +180,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                       "p-2 rounded transition-colors disabled:opacity-50",
                       user.role === 'admin' 
                         ? "text-[#f1c40f] hover:bg-[#f1c40f]/20" 
-                        : "text-[#b5bac1] hover:text-white hover:bg-[#4e5058]"
+                        : "text-text-muted hover:text-text-primary hover:bg-bg-tertiary"
                     )}
                     title={user.role === 'admin' ? "Remover Admin" : "Tornar Admin"}
                   >

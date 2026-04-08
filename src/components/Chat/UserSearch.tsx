@@ -39,31 +39,31 @@ export const UserSearch: React.FC<UserSearchProps> = ({
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-[#313338] w-full max-w-[440px] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
+            className="relative bg-bg-primary w-full max-w-[440px] rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[80vh]"
           >
-            <div className="p-4 border-b border-[#1e1f22]/50">
+            <div className="p-4 border-b border-border-primary/50">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-white">Buscar Amigos</h2>
-                <button onClick={onClose} className="text-[#b5bac1] hover:text-white transition-colors">
+                <h2 className="text-xl font-bold text-text-primary">Buscar Amigos</h2>
+                <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors">
                   <X className="w-6 h-6" />
                 </button>
               </div>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                 <input
                   autoFocus
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   type="text"
                   placeholder="Digite um nome"
-                  className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                  className="w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
                 />
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1">
               {filteredUsers.length === 0 ? (
-                <div className="p-8 text-center text-[#b5bac1]">
+                <div className="p-8 text-center text-text-muted">
                   <p className="text-sm italic">Nenhum usuário encontrado.</p>
                 </div>
               ) : (
@@ -74,7 +74,7 @@ export const UserSearch: React.FC<UserSearchProps> = ({
                       onSelectUser(user);
                       onClose();
                     }}
-                    className="w-full flex items-center p-3 rounded-md hover:bg-[#35373c] transition-colors group"
+                    className="w-full flex items-center p-3 rounded-md hover:bg-bg-tertiary transition-colors group"
                   >
                     <img 
                       src={user.photoURL || DEFAULT_AVATAR} 
@@ -83,9 +83,9 @@ export const UserSearch: React.FC<UserSearchProps> = ({
                       referrerPolicy="no-referrer"
                     />
                     <div className="flex-1 text-left min-w-0">
-                      <p className="text-white font-bold truncate">{user.displayName}</p>
+                      <p className="text-text-primary font-bold truncate">{user.displayName}</p>
                     </div>
-                    <div className="bg-[#1e1f22] p-2 rounded-full text-[#b5bac1] group-hover:text-white group-hover:bg-[#5865f2] transition-all">
+                    <div className="bg-bg-tertiary p-2 rounded-full text-text-muted group-hover:text-text-primary group-hover:bg-[#5865f2] transition-all">
                       <MessageSquare className="w-4 h-4" />
                     </div>
                   </button>

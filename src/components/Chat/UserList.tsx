@@ -23,12 +23,12 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
       initial={{ width: 0, opacity: 0 }}
       animate={{ width: 240, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
-      className="bg-[#2b2d31] border-l border-[#1e1f22]/50 flex flex-col h-full overflow-hidden"
+      className="bg-bg-secondary border-l border-border-primary/50 flex flex-col h-full overflow-hidden"
     >
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {onlineUsers.length > 0 && (
           <div>
-            <h3 className="text-xs font-bold uppercase text-[#949ba4] mb-2 px-2">
+            <h3 className="text-xs font-bold uppercase text-text-muted mb-2 px-2">
               Online — {onlineUsers.length}
             </h3>
             <div className="space-y-1">
@@ -41,7 +41,7 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
 
         {offlineUsers.length > 0 && (
           <div>
-            <h3 className="text-xs font-bold uppercase text-[#949ba4] mb-2 px-2">
+            <h3 className="text-xs font-bold uppercase text-text-muted mb-2 px-2">
               Offline — {offlineUsers.length}
             </h3>
             <div className="space-y-1">
@@ -59,7 +59,7 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
 const UserItem: React.FC<{ user: UserProfile, onContextMenu?: (e: React.MouseEvent, user: UserProfile) => void }> = ({ user, onContextMenu }) => (
   <button 
     onContextMenu={(e) => onContextMenu?.(e, user)}
-    className="w-full flex items-center p-2 rounded-md hover:bg-[#35373c] transition-colors group"
+    className="w-full flex items-center p-2 rounded-md hover:bg-bg-tertiary transition-colors group"
   >
     <div className="relative mr-3">
       <img 
@@ -72,13 +72,13 @@ const UserItem: React.FC<{ user: UserProfile, onContextMenu?: (e: React.MouseEve
         referrerPolicy="no-referrer"
       />
       <div className={cn(
-        "absolute bottom-0 right-0 w-3 h-3 border-2 border-[#2b2d31] rounded-full",
+        "absolute bottom-0 right-0 w-3 h-3 border-2 border-bg-secondary rounded-full",
         user.status === 'online' ? "bg-[#23a559]" : "bg-[#80848e]"
       )} />
     </div>
     <span className={cn(
       "text-sm font-medium truncate",
-      user.status === 'online' ? "text-[#dbdee1]" : "text-[#949ba4]"
+      user.status === 'online' ? "text-text-secondary" : "text-text-muted"
     )}>
       {user.displayName}
     </span>

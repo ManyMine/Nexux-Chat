@@ -249,7 +249,7 @@ export default function App() {
     setIsLoading(true);
     setAuthError(null);
     try {
-      const userProfile = await signIn(values.email, values.password);
+      const userProfile = await signIn(values.identifier, values.password);
       if (userProfile.isBlocked) {
         setAuthError("Sua conta foi bloqueada por um administrador.");
         await logOut();
@@ -282,7 +282,8 @@ export default function App() {
     setIsLoading(true);
     setAuthError(null);
     try {
-      await signUp(values.email, values.password, values.displayName);
+      const { email, password, displayName, ...extra } = values;
+      await signUp(email, password, displayName, extra);
     } catch (error: any) {
       console.error("Sign Up Error:", error);
       if (error.code === 'auth/email-already-in-use') {
@@ -332,10 +333,15 @@ export default function App() {
     if (!activeChannel || !currentUser) return;
     
     try {
+      // Ensure participants include both users for private channels
+      const participants = activeChannel.type === 'private' 
+        ? activeChannel.members 
+        : [currentUser.uid]; // For public channels, just the caller for now
+
       const callId = await startCall(
         activeChannel.id, 
         currentUser, 
-        activeChannel.members, 
+        participants, 
         video ? 'video' : 'voice'
       );
       setActiveCall({ id: callId, type: video ? 'video' : 'voice', channel: activeChannel });
@@ -391,6 +397,7 @@ export default function App() {
           fileUrl = await uploadFile(file, `messages/${activeChannel.id}/${Date.now()}_${file.name}`);
           fileType = file.type;
         }
+        // Replace newlines with <br/> or ensure whitespace is preserved in CSS
         await sendMessage(activeChannel.id, currentUser, content, fileUrl, fileType);
       } catch (error) {
         console.error("Error sending message:", error);
@@ -398,16 +405,43 @@ export default function App() {
     }
   };
 
+  const backgroundStyle = currentUser?.background?.type === 'color' 
+    ? { backgroundColor: currentUser.background.value } 
+    : {};
+
+  const themeClass = currentUser?.theme === 'light' ? 'light' : '';
+
   if (isLoading && !currentUser) {
     return (
-      <div className="min-h-screen bg-[#313338] flex items-center justify-center">
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center">
         <Loader2 className="w-12 h-12 text-[#5865f2] animate-spin" />
       </div>
     );
   }
 
   return (
-    <>
+    <div style={backgroundStyle} className={`min-h-screen ${themeClass}`}>
+      {currentUser?.background?.type === 'video' || currentUser?.background?.type === 'gif' ? (
+        <div className="fixed inset-0 z-[-1] overflow-hidden pointer-events-none">
+          {currentUser.background.type === 'video' ? (
+            <video 
+              autoPlay 
+              muted 
+              loop 
+              playsInline 
+              className="w-full h-full object-cover opacity-30"
+            >
+              <source src={currentUser.background.value} />
+            </video>
+          ) : (
+            <img 
+              src={currentUser.background.value} 
+              alt="background" 
+              className="w-full h-full object-cover opacity-30"
+            />
+          )}
+        </div>
+      ) : null}
       {view === 'login' && (
         <Login 
           onLogin={handleLogin}
@@ -466,7 +500,7 @@ export default function App() {
         onAccept={handleAcceptCall}
         onDecline={handleDeclineCall}
       />
-    </>
+    </div>
   );
 }
 

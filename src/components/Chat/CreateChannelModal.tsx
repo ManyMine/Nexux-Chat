@@ -58,32 +58,32 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative bg-[#313338] w-full max-w-[440px] rounded-lg shadow-2xl overflow-hidden"
+            className="relative bg-bg-primary w-full max-w-[440px] rounded-lg shadow-2xl overflow-hidden"
           >
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold text-white">Criar Canal</h2>
-                <button onClick={onClose} className="text-[#b5bac1] hover:text-white transition-colors">
+                <h2 className="text-2xl font-bold text-text-primary">Criar Canal</h2>
+                <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors">
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              <p className="text-[#b5bac1] text-sm mb-6">
+              <p className="text-text-muted text-sm mb-6">
                 Canais são onde seus amigos se reúnem. Crie um e comece a conversar!
               </p>
 
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+                  <label className="text-xs font-bold uppercase text-text-muted block">
                     Nome do Canal <span className="text-[#f23f42]">*</span>
                   </label>
                   <div className="relative">
-                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                     <input
                       {...register('name')}
                       autoFocus
                       type="text"
                       className={cn(
-                        "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
+                        "w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
                         errors.name && "ring-2 ring-[#f23f42]"
                       )}
                       placeholder="novo-canal"
@@ -93,16 +93,16 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
                 </div>
 
                 <div className="space-y-4">
-                  <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+                  <label className="text-xs font-bold uppercase text-text-muted block">
                     Tipo de Canal
                   </label>
                   
-                  <label className="flex items-center justify-between p-3 bg-[#2b2d31] rounded-md cursor-pointer hover:bg-[#35373c] transition-colors border border-transparent hover:border-[#5865f2]/30">
+                  <label className="flex items-center justify-between p-3 bg-bg-secondary rounded-md cursor-pointer hover:bg-bg-tertiary transition-colors border border-transparent hover:border-[#5865f2]/30">
                     <div className="flex items-center space-x-3">
-                      <Hash className="w-6 h-6 text-[#80848e]" />
+                      <Hash className="w-6 h-6 text-text-muted" />
                       <div>
-                        <p className="text-white font-medium text-sm">Público</p>
-                        <p className="text-[#b5bac1] text-xs">Qualquer pessoa pode ver e entrar.</p>
+                        <p className="text-text-primary font-medium text-sm">Público</p>
+                        <p className="text-text-muted text-xs">Qualquer pessoa pode ver e entrar.</p>
                       </div>
                     </div>
                     <input 
@@ -113,12 +113,12 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-3 bg-[#2b2d31] rounded-md cursor-pointer hover:bg-[#35373c] transition-colors border border-transparent hover:border-[#5865f2]/30">
+                  <label className="flex items-center justify-between p-3 bg-bg-secondary rounded-md cursor-pointer hover:bg-bg-tertiary transition-colors border border-transparent hover:border-[#5865f2]/30">
                     <div className="flex items-center space-x-3">
-                      <Lock className="w-6 h-6 text-[#80848e]" />
+                      <Lock className="w-6 h-6 text-text-muted" />
                       <div>
-                        <p className="text-white font-medium text-sm">Privado</p>
-                        <p className="text-[#b5bac1] text-xs">Apenas membros convidados podem ver.</p>
+                        <p className="text-text-primary font-medium text-sm">Privado</p>
+                        <p className="text-text-muted text-xs">Apenas membros convidados podem ver.</p>
                       </div>
                     </div>
                     <input 
@@ -130,11 +130,11 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
                   </label>
                 </div>
 
-                <div className="bg-[#2b2d31] -mx-6 -mb-6 p-4 flex justify-end space-x-4">
+                <div className="bg-bg-secondary -mx-6 -mb-6 p-4 flex justify-end space-x-4">
                   <button
                     type="button"
                     onClick={onClose}
-                    className="text-white text-sm font-medium hover:underline"
+                    className="text-text-primary text-sm font-medium hover:underline"
                   >
                     Cancelar
                   </button>

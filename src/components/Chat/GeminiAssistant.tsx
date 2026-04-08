@@ -73,39 +73,39 @@ export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ messages, onCl
       initial={{ opacity: 0, x: 300 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 300 }}
-      className="w-80 bg-[#2b2d31] border-l border-[#1e1f22]/50 flex flex-col h-full shadow-xl z-20"
+      className="w-80 bg-bg-secondary border-l border-border-primary/50 flex flex-col h-full shadow-xl z-20"
     >
-      <div className="h-12 px-4 flex items-center justify-between border-b border-[#1e1f22]/50 bg-[#313338]">
+      <div className="h-12 px-4 flex items-center justify-between border-b border-border-primary/50 bg-bg-primary">
         <div className="flex items-center space-x-2 text-[#5865f2]">
           <Sparkles className="w-5 h-5" />
-          <span className="font-bold text-white">Gemini AI</span>
+          <span className="font-bold text-text-primary">Gemini AI</span>
         </div>
-        <button onClick={onClose} className="text-[#b5bac1] hover:text-white transition-colors">
+        <button onClick={onClose} className="text-text-muted hover:text-text-primary transition-colors">
           <X className="w-5 h-5" />
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-[#1e1f22] scrollbar-track-transparent">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-border-primary scrollbar-track-transparent">
         {!response && !isLoading && (
           <div className="text-center space-y-6 mt-8">
-            <div className="bg-[#313338] p-6 rounded-full inline-block shadow-lg">
+            <div className="bg-bg-primary p-6 rounded-full inline-block shadow-lg">
               <Sparkles className="w-10 h-10 text-[#5865f2]" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-white font-bold text-lg">Como posso ajudar?</h3>
-              <p className="text-xs text-[#b5bac1] px-4">Posso resumir o chat, ajudar a escrever mensagens ou analisar o contexto.</p>
+              <h3 className="text-text-primary font-bold text-lg">Como posso ajudar?</h3>
+              <p className="text-xs text-text-muted px-4">Posso resumir o chat, ajudar a escrever mensagens ou analisar o contexto.</p>
             </div>
             <div className="space-y-2 px-2">
               <button 
                 onClick={handleSummarize}
-                className="w-full flex items-center justify-center space-x-2 bg-[#35373c] hover:bg-[#3f4147] text-white text-sm py-2.5 rounded-md transition-colors border border-[#1e1f22]"
+                className="w-full flex items-center justify-center space-x-2 bg-bg-tertiary hover:bg-bg-secondary text-text-primary text-sm py-2.5 rounded-md transition-colors border border-border-primary"
               >
                 <MessageSquare className="w-4 h-4" />
                 <span>Resumir Conversa</span>
               </button>
               <button 
                 onClick={() => setPrompt("O que foi discutido sobre o projeto?")}
-                className="w-full flex items-center justify-center space-x-2 bg-[#35373c] hover:bg-[#3f4147] text-[#b5bac1] text-xs py-2 rounded-md transition-colors border border-[#1e1f22]"
+                className="w-full flex items-center justify-center space-x-2 bg-bg-tertiary hover:bg-bg-secondary text-text-muted text-xs py-2 rounded-md transition-colors border border-border-primary"
               >
                 <span>"O que foi discutido?"</span>
               </button>
@@ -119,17 +119,17 @@ export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ messages, onCl
               <Loader2 className="w-12 h-12 text-[#5865f2] animate-spin" />
               <Sparkles className="w-4 h-4 text-[#5865f2] absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
             </div>
-            <p className="text-sm text-[#b5bac1] animate-pulse">Consultando o Gemini...</p>
+            <p className="text-sm text-text-muted animate-pulse">Consultando o Gemini...</p>
           </div>
         )}
 
         {response && !isLoading && (
           <div className="space-y-4">
-            <div className="bg-[#313338] p-4 rounded-lg border border-[#1e1f22] text-sm text-[#dbdee1] leading-relaxed whitespace-pre-wrap shadow-inner relative group">
+            <div className="bg-bg-primary p-4 rounded-lg border border-border-primary text-sm text-text-secondary leading-relaxed whitespace-pre-wrap shadow-inner relative group">
               {response}
               <button 
                 onClick={() => setResponse(null)}
-                className="absolute top-2 right-2 p-1 text-[#b5bac1] hover:text-white opacity-0 group-hover:opacity-100 transition-all"
+                className="absolute top-2 right-2 p-1 text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100 transition-all"
                 title="Limpar"
               >
                 <RefreshCw className="w-3 h-3" />
@@ -145,7 +145,7 @@ export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ messages, onCl
         )}
       </div>
 
-      <div className="p-4 border-t border-[#1e1f22]/50 bg-[#313338]">
+      <div className="p-4 border-t border-border-primary/50 bg-bg-primary">
         <div className="relative">
           <textarea
             value={prompt}
@@ -157,17 +157,17 @@ export const GeminiAssistant: React.FC<GeminiAssistantProps> = ({ messages, onCl
               }
             }}
             placeholder="Pergunte ao Gemini..."
-            className="w-full bg-[#1e1f22] text-sm text-[#dbdee1] p-3 pr-10 rounded-md outline-none focus:ring-1 focus:ring-[#5865f2] resize-none h-24 scrollbar-none"
+            className="w-full bg-bg-tertiary text-sm text-text-secondary p-3 pr-10 rounded-md outline-none focus:ring-1 focus:ring-[#5865f2] resize-none h-24 scrollbar-none"
           />
           <button 
             onClick={handleAskGemini}
             disabled={!prompt.trim() || isLoading}
-            className="absolute right-2 bottom-2 p-2 bg-[#5865f2] text-white rounded-md hover:bg-[#4752c4] disabled:opacity-50 disabled:bg-[#35373c] transition-all"
+            className="absolute right-2 bottom-2 p-2 bg-[#5865f2] text-white rounded-md hover:bg-[#4752c4] disabled:opacity-50 disabled:bg-bg-tertiary transition-all"
           >
             <Send className="w-4 h-4" />
           </button>
         </div>
-        <p className="text-[10px] text-[#949ba4] mt-2 text-center">
+        <p className="text-[10px] text-text-muted mt-2 text-center">
           O Gemini pode cometer erros. Verifique informações importantes.
         </p>
       </div>

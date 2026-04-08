@@ -4,14 +4,19 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { AuthLayout } from './AuthLayout';
 import { motion } from 'motion/react';
-import { Mail, Lock, User, Loader2 } from 'lucide-react';
+import { Mail, Lock, User, Loader2, ShieldQuestion, CreditCard, Phone, AtSign } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
 const signUpSchema = z.object({
   email: z.string().email('Email inválido'),
   displayName: z.string().min(3, 'O nome deve ter pelo menos 3 caracteres'),
+  username: z.string().min(3, 'O @ deve ter pelo menos 3 caracteres').optional(),
   password: z.string().min(6, 'A senha deve ter pelo menos 6 caracteres'),
   confirmPassword: z.string().min(6, 'A senha deve ter pelo menos 6 caracteres'),
+  securityQuestion: z.string().min(3, 'A pergunta deve ter pelo menos 3 caracteres').optional(),
+  securityAnswer: z.string().min(2, 'A resposta deve ter pelo menos 2 caracteres').optional(),
+  cpf: z.string().optional(),
+  phone: z.string().optional(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "As senhas não coincidem",
   path: ["confirmPassword"],
@@ -83,6 +88,91 @@ export const SignUp: React.FC<SignUpProps> = ({
             />
           </div>
           {errors.displayName && <p className="text-[#f23f42] text-xs mt-1">{errors.displayName.message}</p>}
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+            Nome de usuário (@) <span className="text-[#949ba4] text-[10px]">(Opcional)</span>
+          </label>
+          <div className="relative">
+            <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+            <input
+              {...register('username')}
+              type="text"
+              className={cn(
+                "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
+                errors.username && "ring-2 ring-[#f23f42]"
+              )}
+              placeholder="seu_usuario"
+            />
+          </div>
+          {errors.username && <p className="text-[#f23f42] text-xs mt-1">{errors.username.message}</p>}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+              CPF <span className="text-[#949ba4] text-[10px]">(Opcional)</span>
+            </label>
+            <div className="relative">
+              <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <input
+                {...register('cpf')}
+                type="text"
+                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                placeholder="000.000.000-00"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+              Telefone <span className="text-[#949ba4] text-[10px]">(Opcional)</span>
+            </label>
+            <div className="relative">
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <input
+                {...register('phone')}
+                type="text"
+                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                placeholder="(00) 00000-0000"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 p-4 bg-[#2b2d31] rounded-lg border border-[#1e1f22]">
+          <h3 className="text-xs font-bold uppercase text-[#dbdee1]">Recuperação de Conta (Opcional)</h3>
+          
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+              Pergunta de Segurança
+            </label>
+            <div className="relative">
+              <ShieldQuestion className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <input
+                {...register('securityQuestion')}
+                type="text"
+                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                placeholder="Ex: Qual o nome do seu cachorro?"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+              Resposta de Segurança
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <input
+                {...register('securityAnswer')}
+                type="text"
+                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                placeholder="Sua resposta secreta"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="space-y-2">
