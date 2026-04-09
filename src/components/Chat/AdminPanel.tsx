@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, Ban, Mail, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { Shield, ShieldAlert, Ban, Mail, CheckCircle2, Loader2, AlertCircle, Trash2, Search, X } from 'lucide-react';
 import { UserProfile } from '@/src/types';
-import { getUsers, toggleUserBlock, updateUserRole, resetPassword } from '@/src/services/firebaseService';
+import { getUsers, toggleUserBlock, updateUserRole, resetPassword, adminDeleteUser } from '@/src/services/firebaseService';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface AdminPanelProps {
   currentUser: UserProfile;
@@ -14,10 +15,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const filteredUsers = users.filter(user => 
+    user.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.username?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const fetchUsers = async () => {
     try {
@@ -46,6 +55,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       setMessage({ type: 'success', text: `Usuário ${newStatus ? 'bloqueado' : 'desbloqueado'} com sucesso.` });
     } catch (error) {
       setMessage({ type: 'error', text: 'Erro ao alterar status do usuário.' });
+    } finally {
+      setActionLoading(null);
+      setTimeout(() => setMessage(null), 3000);
+    }
+  };
+
+  const handleDeleteUser = async (user: UserProfile) => {
+    if (user.uid === currentUser.uid) {
+      setMessage({ type: 'error', text: 'Você não pode excluir a si mesmo.' });
+      return;
+    }
+
+    setUserToDelete(user);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+
+    try {
+      setActionLoading(`delete-${userToDelete.uid}`);
+      await adminDeleteUser(userToDelete.uid);
+      setUsers(users.filter(u => u.uid !== userToDelete.uid));
+      setMessage({ type: 'success', text: `Perfil de ${userToDelete.displayName} excluído com sucesso.` });
+      setUserToDelete(null);
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Erro ao excluir usuário.' });
     } finally {
       setActionLoading(null);
       setTimeout(() => setMessage(null), 3000);
@@ -111,14 +146,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       )}
 
       <div className="bg-bg-secondary rounded-lg border border-border-primary overflow-hidden">
-        <div className="p-4 border-b border-border-primary flex justify-between items-center bg-bg-tertiary/50">
-          <h3 className="font-bold text-text-primary">Usuários Cadastrados ({users.length})</h3>
-          <button 
-            onClick={fetchUsers}
-            className="text-xs bg-[#5865f2] hover:bg-[#4752c4] text-white px-3 py-1.5 rounded transition-colors"
-          >
-            Atualizar Lista
-          </button>
+        <div className="p-4 border-b border-border-primary space-y-4 bg-bg-tertiary/50">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-text-primary">Usuários Cadastrados ({users.length})</h3>
+            <button 
+              onClick={fetchUsers}
+              className="text-xs bg-[#5865f2] hover:bg-[#4752c4] text-white px-3 py-1.5 rounded transition-colors"
+            >
+              Atualizar Lista
+            </button>
+          </div>
+          
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <input 
+              type="text"
+              placeholder="Pesquisar por nome, e-mail ou username..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-bg-primary text-text-primary pl-10 pr-4 py-2 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors text-sm"
+            />
+            {searchTerm && (
+              <button 
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -127,7 +183,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
           </div>
         ) : (
           <div className="divide-y divide-border-primary">
-            {users.map(user => (
+            {filteredUsers.length > 0 ? filteredUsers.map(user => (
               <div key={user.uid} className="p-4 flex items-center justify-between hover:bg-bg-primary/50 transition-colors">
                 <div className="flex items-center space-x-3">
                   <div className="relative">
@@ -200,12 +256,88 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   >
                     {actionLoading === `block-${user.uid}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
                   </button>
+
+                  <button
+                    onClick={() => handleDeleteUser(user)}
+                    disabled={actionLoading !== null || user.uid === currentUser.uid}
+                    className="p-2 text-text-muted hover:text-[#f23f42] hover:bg-[#f23f42]/10 rounded transition-colors disabled:opacity-50"
+                    title="Excluir Usuário"
+                  >
+                    {actionLoading === `delete-${user.uid}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="p-8 text-center text-text-muted">
+                Nenhum usuário encontrado para "{searchTerm}".
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Custom Delete Confirmation Modal */}
+      <AnimatePresence>
+        {userToDelete && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-bg-secondary w-full max-w-md rounded-xl shadow-2xl border border-border-primary overflow-hidden"
+            >
+              <div className="p-6 space-y-4">
+                <div className="flex items-center space-x-3 text-[#f23f42]">
+                  <ShieldAlert className="w-6 h-6" />
+                  <h3 className="text-lg font-bold">Confirmar Exclusão</h3>
+                </div>
+                
+                <div className="p-4 bg-[#f23f42]/10 rounded-lg border border-[#f23f42]/20">
+                  <p className="text-sm text-text-primary">
+                    Você está prestes a excluir permanentemente a conta de:
+                  </p>
+                  <div className="mt-3 flex items-center space-x-3">
+                    <img 
+                      src={userToDelete.photoURL || DEFAULT_AVATAR} 
+                      alt="" 
+                      className="w-10 h-10 rounded-full object-cover"
+                    />
+                    <div>
+                      <p className="font-bold text-text-primary">{userToDelete.displayName}</p>
+                      <p className="text-xs text-text-muted">{userToDelete.email || userToDelete.username}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-sm text-text-muted">
+                  Esta ação é irreversível e removerá todos os dados do usuário do banco de dados.
+                </p>
+
+                <div className="flex space-x-3 pt-2">
+                  <button
+                    onClick={() => setUserToDelete(null)}
+                    className="flex-1 px-4 py-2.5 rounded-lg bg-bg-tertiary text-text-primary font-medium hover:bg-bg-primary transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmDeleteUser}
+                    disabled={actionLoading !== null}
+                    className="flex-1 px-4 py-2.5 rounded-lg bg-[#f23f42] text-white font-medium hover:bg-[#d83c3e] transition-colors flex items-center justify-center space-x-2 disabled:opacity-50"
+                  >
+                    {actionLoading?.startsWith('delete-') ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
+                    <span>Excluir Perfil</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

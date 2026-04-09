@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, User, Shield, Palette, Bell, LogOut, ShieldAlert, Camera, Loader2, Check, AlertCircle, PlusCircle } from 'lucide-react';
+import { X, User, Shield, Palette, Bell, LogOut, ShieldAlert, Camera, Loader2, Check, AlertCircle, PlusCircle, Sun, Moon } from 'lucide-react';
 import { UserProfile } from '@/src/types';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
@@ -9,7 +9,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 
-import { updateUserPrivacy, updateUserProfile, updateUserPassword, updateUserEmail, uploadFile } from '@/src/services/firebaseService';
+import { updateUserPrivacy, updateUserProfile, updateUserPassword, updateUserEmail, uploadFile, deactivateAccount, deleteAccount } from '@/src/services/firebaseService';
 
 interface UserSettingsProps {
   isOpen: boolean;
@@ -329,7 +329,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                         </div>
                       </div>
 
-                      <div className="pt-4">
+                      <div className="pt-4 flex items-center justify-between">
                         <button 
                           type="submit"
                           disabled={isUpdating}
@@ -341,6 +341,55 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                       </div>
                     </div>
                   </form>
+
+                  <div className="mt-10 space-y-4">
+                    <h3 className="text-sm font-bold text-[#f23f42] uppercase">Zona de Perigo</h3>
+                    <div className="bg-bg-tertiary rounded-lg p-6 border border-[#f23f42]/30 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-text-primary font-medium">Desativar Conta</p>
+                          <p className="text-xs text-text-muted">Desativar sua conta oculta seu perfil e impede novas mensagens. Você pode reativar depois.</p>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            if (window.confirm("Tem certeza que deseja desativar sua conta? Você será desconectado.")) {
+                              try {
+                                await deactivateAccount(currentUser.uid);
+                              } catch (err: any) {
+                                setUpdateError(err.message);
+                              }
+                            }
+                          }}
+                          className="border border-[#f23f42] text-[#f23f42] hover:bg-[#f23f42] hover:text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                        >
+                          Desativar Conta
+                        </button>
+                      </div>
+
+                      <div className="h-px bg-border-primary" />
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-text-primary font-medium">Excluir Conta</p>
+                          <p className="text-xs text-text-muted">Isso excluirá permanentemente todos os seus dados. Esta ação não pode ser desfeita.</p>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            if (window.confirm("AVISO CRÍTICO: Tem certeza que deseja EXCLUIR sua conta permanentemente? Todos os seus dados serão perdidos.")) {
+                              try {
+                                await deleteAccount(currentUser.uid);
+                              } catch (err: any) {
+                                setUpdateError(err.message);
+                              }
+                            }
+                          }}
+                          className="bg-[#f23f42] hover:bg-[#d83c3e] text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                        >
+                          Excluir Conta
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -462,27 +511,136 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                   <div className="space-y-6 bg-bg-tertiary p-6 rounded-lg">
                     <div className="space-y-4">
                       <p className="text-text-primary font-medium">Tema do Sistema</p>
-                      <div className="flex space-x-4">
-                        <label className="flex items-center space-x-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="theme" 
-                            checked={!currentUser.theme || currentUser.theme === 'dark'} 
-                            onChange={() => updateUserProfile(currentUser.uid, { theme: 'dark' })}
-                            className="text-[#5865f2]" 
-                          />
-                          <span className="text-text-secondary">Escuro</span>
-                        </label>
-                        <label className="flex items-center space-x-2 cursor-pointer">
-                          <input 
-                            type="radio" 
-                            name="theme" 
-                            checked={currentUser.theme === 'light'} 
-                            onChange={() => updateUserProfile(currentUser.uid, { theme: 'light' })}
-                            className="text-[#5865f2]" 
-                          />
-                          <span className="text-text-secondary">Claro</span>
-                        </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button 
+                          onClick={() => updateUserProfile(currentUser.uid, { theme: 'dark' })}
+                          className={cn(
+                            "relative flex flex-col items-center p-4 rounded-xl border-2 transition-all group",
+                            (!currentUser.theme || currentUser.theme === 'dark') 
+                              ? "border-color-brand bg-bg-secondary" 
+                              : "border-border-primary bg-bg-tertiary hover:border-text-muted"
+                          )}
+                        >
+                          <div className="w-full aspect-video bg-[#313338] rounded-md mb-3 overflow-hidden border border-border-primary shadow-inner">
+                             <div className="h-2 bg-[#2b2d31] w-full mb-1" />
+                             <div className="flex h-full">
+                               <div className="w-4 bg-[#1e1f22]" />
+                               <div className="flex-1 p-1 space-y-1">
+                                 <div className="h-1 bg-[#404249] w-3/4 rounded-full" />
+                                 <div className="h-1 bg-[#404249] w-1/2 rounded-full" />
+                               </div>
+                             </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Moon className="w-4 h-4 text-text-primary" />
+                            <span className="font-bold text-sm text-text-primary">Escuro</span>
+                          </div>
+                          {(!currentUser.theme || currentUser.theme === 'dark') && (
+                            <div className="absolute top-2 right-2 bg-color-brand rounded-full p-0.5">
+                              <Check className="w-3 h-3 text-white" />
+                            </div>
+                          )}
+                        </button>
+
+                        <button 
+                          onClick={() => updateUserProfile(currentUser.uid, { theme: 'light' })}
+                          className={cn(
+                            "relative flex flex-col items-center p-4 rounded-xl border-2 transition-all group",
+                            (currentUser.theme === 'light') 
+                              ? "border-color-brand bg-bg-secondary" 
+                              : "border-border-primary bg-bg-tertiary hover:border-text-muted"
+                          )}
+                        >
+                          <div className="w-full aspect-video bg-white rounded-md mb-3 overflow-hidden border border-border-primary shadow-inner">
+                             <div className="h-2 bg-[#f2f3f5] w-full mb-1" />
+                             <div className="flex h-full">
+                               <div className="w-4 bg-[#e3e5e8]" />
+                               <div className="flex-1 p-1 space-y-1">
+                                 <div className="h-1 bg-[#ebedef] w-3/4 rounded-full" />
+                                 <div className="h-1 bg-[#ebedef] w-1/2 rounded-full" />
+                               </div>
+                             </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Sun className="w-4 h-4 text-text-primary" />
+                            <span className="font-bold text-sm text-text-primary">Claro</span>
+                          </div>
+                          {(currentUser.theme === 'light') && (
+                            <div className="absolute top-2 right-2 bg-color-brand rounded-full p-0.5">
+                              <Check className="w-3 h-3 text-white" />
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-bg-primary" />
+
+                    <div className="space-y-4">
+                      <p className="text-text-primary font-medium">Idioma do Aplicativo</p>
+                      <div className="grid grid-cols-4 gap-3">
+                        {[
+                          { id: 'pt', name: 'Português', flag: '🇧🇷' },
+                          { id: 'en', name: 'English', flag: '🇺🇸' },
+                          { id: 'es', name: 'Español', flag: '🇪🇸' },
+                          { id: 'ja', name: '日本語', flag: '🇯🇵' }
+                        ].map(lang => (
+                          <button
+                            key={lang.id}
+                            onClick={() => updateUserProfile(currentUser.uid, { language: lang.id as any })}
+                            className={cn(
+                              "flex flex-col items-center p-3 rounded-lg border-2 transition-all",
+                              (currentUser.language === lang.id || (!currentUser.language && lang.id === 'pt'))
+                                ? "border-color-brand bg-bg-secondary"
+                                : "border-border-primary bg-bg-tertiary hover:border-text-muted"
+                            )}
+                          >
+                            <span className="text-2xl mb-1">{lang.flag}</span>
+                            <span className="text-xs font-bold text-text-primary">{lang.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-bg-primary" />
+
+                    <div className="space-y-4">
+                      <p className="text-text-primary font-medium">Cores do Tema</p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-text-muted uppercase">Cor Primária (Marca)</label>
+                          <div className="flex items-center space-x-3">
+                            <input 
+                              type="color"
+                              value={currentUser.primaryColor || '#5865f2'}
+                              onChange={(e) => updateUserProfile(currentUser.uid, { primaryColor: e.target.value })}
+                              className="h-10 w-20 bg-transparent border-none cursor-pointer"
+                            />
+                            <button 
+                              onClick={() => updateUserProfile(currentUser.uid, { primaryColor: '#5865f2' })}
+                              className="text-xs text-color-brand hover:underline"
+                            >
+                              Resetar
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-text-muted uppercase">Cor de Destaque (Accent)</label>
+                          <div className="flex items-center space-x-3">
+                            <input 
+                              type="color"
+                              value={currentUser.accentColor || '#eb459e'}
+                              onChange={(e) => updateUserProfile(currentUser.uid, { accentColor: e.target.value })}
+                              className="h-10 w-20 bg-transparent border-none cursor-pointer"
+                            />
+                            <button 
+                              onClick={() => updateUserProfile(currentUser.uid, { accentColor: '#eb459e' })}
+                              className="text-xs text-color-brand hover:underline"
+                            >
+                              Resetar
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -490,28 +648,105 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
 
                     <div className="space-y-4">
                       <p className="text-text-primary font-medium">Fundo Personalizado</p>
-                      <div className="grid grid-cols-1 gap-4">
+                      <div className="grid grid-cols-1 gap-6">
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-text-muted uppercase">Tipo de Fundo</label>
                           <select 
                             value={currentUser.background?.type || 'color'}
-                            onChange={(e) => updateUserProfile(currentUser.uid, { 
-                              background: { 
-                                type: e.target.value as any, 
-                                value: currentUser.background?.value || (e.target.value === 'color' ? '#313338' : '') 
-                              } 
-                            })}
+                            onChange={(e) => {
+                              const type = e.target.value as any;
+                              let defaultValue = '';
+                              if (type === 'color') defaultValue = '#313338';
+                              if (type === 'gradient') defaultValue = 'linear-gradient(135deg, #5865f2 0%, #eb459e 100%)';
+                              
+                              updateUserProfile(currentUser.uid, { 
+                                background: { 
+                                  ...currentUser.background,
+                                  type, 
+                                  value: defaultValue,
+                                  opacity: currentUser.background?.opacity ?? (type === 'color' || type === 'gradient' || type === 'pattern' ? 100 : 30),
+                                  patternId: type === 'pattern' ? 'dots' : undefined
+                                } 
+                              });
+                            }}
                             className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2]"
                           >
                             <option value="color">Cor Sólida</option>
+                            <option value="gradient">Gradiente</option>
+                            <option value="pattern">Padrão (Pattern)</option>
                             <option value="video">Vídeo (URL)</option>
                             <option value="gif">GIF (URL)</option>
                           </select>
                         </div>
 
+                        {currentUser.background?.type === 'gradient' && (
+                          <div className="space-y-4 p-4 bg-bg-primary rounded border border-border-primary">
+                            <label className="text-xs font-bold text-text-muted uppercase">Configurar Gradiente</label>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <label className="text-[10px] text-text-muted uppercase">Cor Inicial</label>
+                                <input 
+                                  type="color"
+                                  defaultValue="#5865f2"
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const current = currentUser.background?.value || '';
+                                    const endColor = current.match(/#[a-fA-F0-9]{6}/g)?.[1] || '#eb459e';
+                                    updateUserProfile(currentUser.uid, { 
+                                      background: { ...currentUser.background!, value: `linear-gradient(135deg, ${val} 0%, ${endColor} 100%)` } 
+                                    });
+                                  }}
+                                  className="w-full h-8 bg-transparent border-none cursor-pointer"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <label className="text-[10px] text-text-muted uppercase">Cor Final</label>
+                                <input 
+                                  type="color"
+                                  defaultValue="#eb459e"
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const current = currentUser.background?.value || '';
+                                    const startColor = current.match(/#[a-fA-F0-9]{6}/g)?.[0] || '#5865f2';
+                                    updateUserProfile(currentUser.uid, { 
+                                      background: { ...currentUser.background!, value: `linear-gradient(135deg, ${startColor} 0%, ${val} 100%)` } 
+                                    });
+                                  }}
+                                  className="w-full h-8 bg-transparent border-none cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {currentUser.background?.type === 'pattern' && (
+                          <div className="space-y-2">
+                            <label className="text-xs font-bold text-text-muted uppercase">Escolher Padrão</label>
+                            <div className="grid grid-cols-3 gap-2">
+                              {['dots', 'lines', 'grid'].map(p => (
+                                <button
+                                  key={p}
+                                  onClick={() => updateUserProfile(currentUser.uid, { 
+                                    background: { ...currentUser.background!, patternId: p } 
+                                  })}
+                                  className={cn(
+                                    "p-2 rounded border text-xs capitalize transition-colors",
+                                    currentUser.background?.patternId === p ? "bg-[#5865f2] text-white border-[#5865f2]" : "bg-bg-primary text-text-secondary border-border-primary hover:border-text-muted"
+                                  )}
+                                >
+                                  {p}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-text-muted uppercase">
-                            {currentUser.background?.type === 'color' ? 'Seletor de Cor' : 'URL do Recurso'}
+                            {currentUser.background?.type === 'color' ? 'Seletor de Cor' : 
+                             currentUser.background?.type === 'gradient' ? 'CSS do Gradiente' :
+                             currentUser.background?.type === 'pattern' ? 'Cor do Padrão (Automático)' :
+                             'URL do Recurso'}
                           </label>
                           <div className="flex flex-col space-y-2">
                             <div className="flex space-x-2">
@@ -520,10 +755,21 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                                   type="color"
                                   value={currentUser.background?.value || '#313338'}
                                   onChange={(e) => updateUserProfile(currentUser.uid, { 
-                                    background: { type: 'color', value: e.target.value } 
+                                    background: { ...currentUser.background, type: 'color', value: e.target.value } 
                                   })}
                                   className="h-10 w-20 bg-transparent border-none cursor-pointer"
                                 />
+                              ) : currentUser.background?.type === 'gradient' ? (
+                                <input 
+                                  type="text"
+                                  value={currentUser.background?.value || ''}
+                                  onChange={(e) => updateUserProfile(currentUser.uid, { 
+                                    background: { ...currentUser.background!, value: e.target.value } 
+                                  })}
+                                  className="flex-1 bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2]"
+                                />
+                              ) : currentUser.background?.type === 'pattern' ? (
+                                <div className="p-2.5 text-xs text-text-muted italic">A cor do padrão se ajusta ao tema (Claro/Escuro).</div>
                               ) : (
                                 <>
                                   <input 
@@ -532,6 +778,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                                     value={currentUser.background?.value || ''}
                                     onChange={(e) => updateUserProfile(currentUser.uid, { 
                                       background: { 
+                                        ...currentUser.background,
                                         type: currentUser.background?.type || 'video', 
                                         value: e.target.value 
                                       } 
@@ -550,6 +797,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                                             const url = await uploadFile(file, `backgrounds/${currentUser.uid}_${Date.now()}`);
                                             updateUserProfile(currentUser.uid, { 
                                               background: { 
+                                                ...currentUser.background,
                                                 type: currentUser.background?.type || 'video', 
                                                 value: url 
                                               } 
@@ -569,13 +817,33 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                                 </>
                               )}
                             </div>
-                            <p className="text-[10px] text-text-muted">
-                              {currentUser.background?.type === 'color' 
-                                ? 'Escolha uma cor para o fundo do seu aplicativo.' 
-                                : 'Insira um link direto ou faça upload de um arquivo. Ele rodará em loop.'}
-                            </p>
                           </div>
                         </div>
+
+                        {currentUser.background && (
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <label className="text-xs font-bold text-text-muted uppercase">Opacidade do Fundo</label>
+                              <span className="text-xs text-text-secondary">{currentUser.background.opacity ?? (currentUser.background.type === 'color' ? 100 : 30)}%</span>
+                            </div>
+                            <input 
+                              type="range"
+                              min="0"
+                              max="100"
+                              value={currentUser.background.opacity ?? (currentUser.background.type === 'color' ? 100 : 30)}
+                              onChange={(e) => updateUserProfile(currentUser.uid, { 
+                                background: { 
+                                  ...currentUser.background!,
+                                  opacity: parseInt(e.target.value) 
+                                } 
+                              })}
+                              className="w-full h-1.5 bg-bg-primary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
+                            />
+                            <p className="text-[10px] text-text-muted">
+                              Ajuste a visibilidade do fundo. Para cores, 100% é o padrão. Para vídeos/gifs, valores menores (30-50%) funcionam melhor.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

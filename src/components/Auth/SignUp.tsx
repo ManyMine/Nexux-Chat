@@ -47,128 +47,128 @@ export const SignUp: React.FC<SignUpProps> = ({
     <AuthLayout title="Criar uma conta" subtitle="Junte-se à nossa comunidade hoje!">
       <form onSubmit={handleSubmit(onSignUp)} className="space-y-6">
         {error && (
-          <div className="bg-[#f23f42]/10 border border-[#f23f42]/50 text-[#f23f42] p-3 rounded-md text-sm">
+          <div className="bg-color-danger/10 border border-color-danger/50 text-color-danger p-3 rounded-md text-sm">
             {error}
           </div>
         )}
         
         <div className="space-y-2">
-          <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-            E-mail <span className="text-[#f23f42]">*</span>
+          <label className="text-xs font-bold uppercase text-text-muted block">
+            E-mail <span className="text-color-danger">*</span>
           </label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
             <input
               {...register('email')}
               type="email"
               className={cn(
-                "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
-                errors.email && "ring-2 ring-[#f23f42]"
+                "w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all",
+                errors.email && "ring-2 ring-color-danger"
               )}
               placeholder="exemplo@email.com"
             />
           </div>
-          {errors.email && <p className="text-[#f23f42] text-xs mt-1">{errors.email.message}</p>}
+          {errors.email && <p className="text-color-danger text-xs mt-1">{errors.email.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-            Nome de exibição <span className="text-[#f23f42]">*</span>
+          <label className="text-xs font-bold uppercase text-text-muted block">
+            Nome de exibição <span className="text-color-danger">*</span>
           </label>
           <div className="relative">
-            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
             <input
               {...register('displayName')}
               type="text"
               className={cn(
-                "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
-                errors.displayName && "ring-2 ring-[#f23f42]"
+                "w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all",
+                errors.displayName && "ring-2 ring-color-danger"
               )}
               placeholder="Como quer ser chamado?"
             />
           </div>
-          {errors.displayName && <p className="text-[#f23f42] text-xs mt-1">{errors.displayName.message}</p>}
+          {errors.displayName && <p className="text-color-danger text-xs mt-1">{errors.displayName.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-            Nome de usuário (@) <span className="text-[#949ba4] text-[10px]">(Opcional)</span>
+          <label className="text-xs font-bold uppercase text-text-muted block">
+            Nome de usuário (@) <span className="text-text-muted text-[10px]">(Opcional)</span>
           </label>
           <div className="relative">
-            <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+            <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
             <input
               {...register('username')}
               type="text"
               className={cn(
-                "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
-                errors.username && "ring-2 ring-[#f23f42]"
+                "w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all",
+                errors.username && "ring-2 ring-color-danger"
               )}
               placeholder="seu_usuario"
             />
           </div>
-          {errors.username && <p className="text-[#f23f42] text-xs mt-1">{errors.username.message}</p>}
+          {errors.username && <p className="text-color-danger text-xs mt-1">{errors.username.message}</p>}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-              CPF <span className="text-[#949ba4] text-[10px]">(Opcional)</span>
+            <label className="text-xs font-bold uppercase text-text-muted block">
+              CPF <span className="text-text-muted text-[10px]">(Opcional)</span>
             </label>
             <div className="relative">
-              <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
               <input
                 {...register('cpf')}
                 type="text"
-                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                className="w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all"
                 placeholder="000.000.000-00"
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-              Telefone <span className="text-[#949ba4] text-[10px]">(Opcional)</span>
+            <label className="text-xs font-bold uppercase text-text-muted block">
+              Telefone <span className="text-text-muted text-[10px]">(Opcional)</span>
             </label>
             <div className="relative">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
               <input
                 {...register('phone')}
                 type="text"
-                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                className="w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all"
                 placeholder="(00) 00000-0000"
               />
             </div>
           </div>
         </div>
 
-        <div className="space-y-4 p-4 bg-[#2b2d31] rounded-lg border border-[#1e1f22]">
-          <h3 className="text-xs font-bold uppercase text-[#dbdee1]">Recuperação de Conta (Opcional)</h3>
+        <div className="space-y-4 p-4 bg-bg-secondary rounded-lg border border-border-primary">
+          <h3 className="text-xs font-bold uppercase text-text-primary">Recuperação de Conta (Opcional)</h3>
           
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+            <label className="text-xs font-bold uppercase text-text-muted block">
               Pergunta de Segurança
             </label>
             <div className="relative">
-              <ShieldQuestion className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <ShieldQuestion className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
               <input
                 {...register('securityQuestion')}
                 type="text"
-                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                className="w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all"
                 placeholder="Ex: Qual o nome do seu cachorro?"
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold uppercase text-[#b5bac1] block">
+            <label className="text-xs font-bold uppercase text-text-muted block">
               Resposta de Segurança
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
               <input
                 {...register('securityAnswer')}
                 type="text"
-                className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                className="w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all"
                 placeholder="Sua resposta secreta"
               />
             </div>
@@ -176,48 +176,48 @@ export const SignUp: React.FC<SignUpProps> = ({
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-            Senha <span className="text-[#f23f42]">*</span>
+          <label className="text-xs font-bold uppercase text-text-muted block">
+            Senha <span className="text-color-danger">*</span>
           </label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
             <input
               {...register('password')}
               type="password"
               className={cn(
-                "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
-                errors.password && "ring-2 ring-[#f23f42]"
+                "w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all",
+                errors.password && "ring-2 ring-color-danger"
               )}
               placeholder="••••••••"
             />
           </div>
-          {errors.password && <p className="text-[#f23f42] text-xs mt-1">{errors.password.message}</p>}
+          {errors.password && <p className="text-color-danger text-xs mt-1">{errors.password.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-bold uppercase text-[#b5bac1] block">
-            Confirmar Senha <span className="text-[#f23f42]">*</span>
+          <label className="text-xs font-bold uppercase text-text-muted block">
+            Confirmar Senha <span className="text-color-danger">*</span>
           </label>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
             <input
               {...register('confirmPassword')}
               type="password"
               className={cn(
-                "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
-                errors.confirmPassword && "ring-2 ring-[#f23f42]"
+                "w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all",
+                errors.confirmPassword && "ring-2 ring-color-danger"
               )}
               placeholder="••••••••"
             />
           </div>
-          {errors.confirmPassword && <p className="text-[#f23f42] text-xs mt-1">{errors.confirmPassword.message}</p>}
+          {errors.confirmPassword && <p className="text-color-danger text-xs mt-1">{errors.confirmPassword.message}</p>}
         </div>
 
         <div className="space-y-3">
           <button
             disabled={isLoading}
             type="submit"
-            className="w-full bg-[#5865f2] hover:bg-[#4752c4] text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-color-brand hover:bg-color-brand-hover text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Registrar"}
           </button>
@@ -227,7 +227,7 @@ export const SignUp: React.FC<SignUpProps> = ({
               type="button"
               disabled={isLoading}
               onClick={onGoogleLogin}
-              className="w-full bg-white hover:bg-gray-100 text-gray-900 font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-bg-primary hover:bg-bg-tertiary text-text-primary font-bold py-3 rounded-md border border-border-primary transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -240,12 +240,12 @@ export const SignUp: React.FC<SignUpProps> = ({
           )}
         </div>
 
-        <p className="text-[#949ba4] text-sm mt-4">
+        <p className="text-text-muted text-sm mt-4">
           Já tem uma conta?{" "}
           <button
             type="button"
             onClick={onLoginClick}
-            className="text-[#00a8fc] hover:underline"
+            className="text-color-brand hover:underline"
           >
             Entrar
           </button>

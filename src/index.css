@@ -7,6 +7,7 @@
   /* Brand Colors */
   --color-brand: var(--brand);
   --color-brand-hover: var(--brand-hover);
+  --color-accent: var(--accent);
   --color-danger: var(--danger);
   --color-success: var(--success);
   --color-warning: var(--warning);
@@ -26,6 +27,7 @@
   /* Brand Colors */
   --brand: #5865f2;
   --brand-hover: #4752c4;
+  --accent: #eb459e;
   --danger: #f23f42;
   --success: #23a559;
   --warning: #f2bc1b;

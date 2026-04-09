@@ -16,7 +16,8 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
 
   const visibleUsers = users.filter(u => !u.isPrivate || u.uid === currentUser?.uid);
   const onlineUsers = visibleUsers.filter(u => u.status === 'online');
-  const offlineUsers = visibleUsers.filter(u => u.status !== 'online');
+  const awayUsers = visibleUsers.filter(u => u.status === 'away');
+  const offlineUsers = visibleUsers.filter(u => u.status !== 'online' && u.status !== 'away');
 
   return (
     <motion.div
@@ -33,6 +34,19 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
             </h3>
             <div className="space-y-1">
               {onlineUsers.map(user => (
+                <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {awayUsers.length > 0 && (
+          <div>
+            <h3 className="text-xs font-bold uppercase text-text-muted mb-2 px-2">
+              Ausente — {awayUsers.length}
+            </h3>
+            <div className="space-y-1">
+              {awayUsers.map(user => (
                 <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} />
               ))}
             </div>
@@ -67,20 +81,26 @@ const UserItem: React.FC<{ user: UserProfile, onContextMenu?: (e: React.MouseEve
         alt={user.displayName}
         className={cn(
           "w-8 h-8 rounded-full object-cover",
-          user.status !== 'online' && "grayscale opacity-50"
+          user.status === 'offline' && "grayscale opacity-50"
         )}
         referrerPolicy="no-referrer"
       />
       <div className={cn(
         "absolute bottom-0 right-0 w-3 h-3 border-2 border-bg-secondary rounded-full",
-        user.status === 'online' ? "bg-[#23a559]" : "bg-[#80848e]"
+        user.status === 'online' ? "bg-color-success" : 
+        user.status === 'away' ? "bg-color-warning" : "bg-text-muted"
       )} />
     </div>
-    <span className={cn(
-      "text-sm font-medium truncate",
-      user.status === 'online' ? "text-text-secondary" : "text-text-muted"
-    )}>
-      {user.displayName}
-    </span>
+    <div className="flex flex-col items-start min-w-0">
+      <span className={cn(
+        "text-sm font-medium truncate",
+        user.status === 'online' || user.status === 'away' ? "text-text-secondary" : "text-text-muted"
+      )}>
+        {user.displayName}
+      </span>
+      <span className="text-[10px] text-text-muted capitalize">
+        {user.status || 'offline'}
+      </span>
+    </div>
   </button>
 );

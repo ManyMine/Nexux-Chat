@@ -25,10 +25,11 @@
         "id": { "type": "string", "description": "Unique channel ID" },
         "name": { "type": "string", "description": "Channel name" },
         "description": { "type": "string", "description": "Channel description" },
-        "type": { "type": "string", "enum": ["public", "private"], "description": "Channel type" },
+        "type": { "type": "string", "enum": ["public", "private", "category"], "description": "Channel type" },
         "createdBy": { "type": "string", "description": "UID of the creator" },
         "createdAt": { "type": "number", "description": "Timestamp of creation" },
-        "members": { "type": "array", "items": { "type": "string" }, "description": "Array of member UIDs" }
+        "members": { "type": "array", "items": { "type": "string" }, "description": "Array of member UIDs" },
+        "parentId": { "type": "string", "description": "ID of the category channel" }
       },
       "required": ["id", "name", "type", "createdBy", "createdAt", "members"]
     },
@@ -45,9 +46,43 @@
         "content": { "type": "string", "description": "Message content" },
         "timestamp": { "type": "number", "description": "Timestamp of the message" },
         "readBy": { "type": "array", "items": { "type": "string" }, "description": "Array of UIDs who read the message" },
-        "isEdited": { "type": "boolean", "description": "Whether the message was edited" }
+        "isEdited": { "type": "boolean", "description": "Whether the message was edited" },
+        "isPinned": { "type": "boolean", "description": "Whether the message is pinned" },
+        "pinnedBy": { "type": "string", "description": "UID of the user who pinned the message" },
+        "pinnedAt": { "type": "number", "description": "Timestamp when the message was pinned" }
       },
       "required": ["id", "channelId", "senderId", "senderName", "content", "timestamp"]
+    },
+    "statuses": {
+      "title": "Status",
+      "description": "A status update (story)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique status ID" },
+        "userId": { "type": "string", "description": "UID of the user" },
+        "userName": { "type": "string", "description": "Name of the user" },
+        "userPhoto": { "type": "string", "description": "Photo URL of the user" },
+        "mediaUrl": { "type": "string", "description": "Media URL (video, image, audio, link)" },
+        "mediaType": { "type": "string", "enum": ["video", "image", "audio", "drawing", "link"], "description": "Type of media" },
+        "caption": { "type": "string", "description": "Status caption" },
+        "timestamp": { "type": "number", "description": "Timestamp" },
+        "likes": { "type": "array", "items": { "type": "string" }, "description": "Array of UIDs who liked" },
+        "comments": { "type": "array", "items": { "$ref": "statusComments" }, "description": "Comments" },
+        "views": { "type": "array", "items": { "type": "string" }, "description": "Array of UIDs who viewed" }
+      },
+      "required": ["id", "userId", "userName", "mediaUrl", "mediaType", "timestamp"]
+    },
+    "statusComments": {
+      "title": "Status Comment",
+      "description": "A comment on a status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "number" }
+      }
     }
   },
   "firestore": {
@@ -62,6 +97,10 @@
     "/channels/{channelId}/messages/{messageId}": {
       "schema": "messages",
       "description": "Message documents within a channel"
+    },
+    "/statuses/{statusId}": {
+      "schema": "statuses",
+      "description": "Status documents"
     }
   }
 }

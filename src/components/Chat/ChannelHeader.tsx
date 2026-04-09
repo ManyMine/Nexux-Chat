@@ -1,6 +1,7 @@
 import React from 'react';
 import { Hash, Bell, Pin, Users, Search, HelpCircle, Settings, Menu, Phone, Video, AtSign } from 'lucide-react';
 import { Channel, UserProfile } from '@/src/types';
+import { cn } from '@/src/lib/utils';
 
 interface ChannelHeaderProps {
   channel: Channel;
@@ -11,6 +12,7 @@ interface ChannelHeaderProps {
   onToggleSidebar?: () => void;
   onStartCall: (video: boolean) => void;
   onSearch: (query: string) => void;
+  onShowPinned: () => void;
 }
 
 export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
@@ -21,7 +23,8 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
   showUsers,
   onToggleSidebar,
   onStartCall,
-  onSearch
+  onSearch,
+  onShowPinned
 }) => {
   return (
     <div className="h-12 px-4 flex items-center justify-between border-b border-border-primary/50 shadow-sm bg-bg-primary z-10">
@@ -35,12 +38,26 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
           </button>
         )}
         {channel.type === 'private' ? (
-          <AtSign className="w-6 h-6 text-text-muted flex-shrink-0" />
+          <div className="relative flex-shrink-0">
+            <AtSign className="w-6 h-6 text-text-muted" />
+            {otherUser && (
+              <div className={cn(
+                "absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-bg-primary rounded-full",
+                otherUser.status === 'online' ? "bg-color-success" : 
+                otherUser.status === 'away' ? "bg-color-warning" : "bg-text-muted"
+              )} />
+            )}
+          </div>
         ) : (
           <Hash className="w-6 h-6 text-text-muted flex-shrink-0" />
         )}
-        <h2 className="font-bold text-text-primary truncate">
-          {channel.type === 'private' && otherUser ? otherUser.displayName : channel.name}
+        <h2 className="font-bold text-text-primary truncate flex items-center space-x-2">
+          <span>{channel.type === 'private' && otherUser ? otherUser.displayName : channel.name}</span>
+          {channel.type === 'private' && otherUser && (
+            <span className="text-[10px] uppercase font-bold text-text-muted px-1.5 py-0.5 rounded bg-bg-tertiary">
+              {otherUser.status || 'offline'}
+            </span>
+          )}
         </h2>
         {channel.description && channel.type !== 'private' && (
           <div className="hidden md:flex items-center space-x-2 ml-2 border-l border-border-primary pl-2 overflow-hidden">
@@ -63,9 +80,15 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
         >
           <Video className="w-5 h-5" />
         </button>
+        <button 
+          onClick={onShowPinned}
+          className="hover:text-text-primary transition-colors"
+          title="Mensagens Fixadas"
+        >
+          <Pin className="w-5 h-5" />
+        </button>
         <div className="w-px h-6 bg-border-primary mx-1" />
         <button className="hover:text-text-primary transition-colors hidden sm:block"><Bell className="w-5 h-5" /></button>
-        <button className="hover:text-text-primary transition-colors hidden sm:block"><Pin className="w-5 h-5" /></button>
         <button 
           onClick={onShowUsers}
           className={`hover:text-text-primary transition-colors ${showUsers ? 'text-text-primary' : ''}`}

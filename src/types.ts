@@ -7,6 +7,7 @@ export interface UserProfile {
   createdAt: number;
   role?: 'admin' | 'user';
   isBlocked?: boolean;
+  isDeactivated?: boolean;
   isPrivate?: boolean;
   canChat?: boolean;
   securityQuestion?: string;
@@ -15,20 +16,29 @@ export interface UserProfile {
   phone?: string;
   username?: string; // For "@" handle
   background?: {
-    type: 'color' | 'video' | 'gif';
-    value: string; // hex color or URL
+    type: 'color' | 'video' | 'gif' | 'gradient' | 'pattern';
+    value: string; // hex color, URL, or CSS gradient string
+    opacity?: number; // 0 to 100
+    patternId?: string; // For specific pattern selection
   };
   theme?: 'dark' | 'light';
+  primaryColor?: string; // Hex for brand color
+  accentColor?: string; // Hex for secondary accents
+  isAnonymous?: boolean;
+  expiresAt?: number;
+  phoneNumber?: string;
+  language?: 'pt' | 'en' | 'es';
 }
 
 export interface Channel {
   id: string;
   name: string;
   description?: string;
-  type: 'public' | 'private';
+  type: 'public' | 'private' | 'category';
   createdBy: string;
   createdAt: number;
   members: string[]; // Array of UIDs
+  parentId?: string; // ID of the category channel
 }
 
 export interface Message {
@@ -43,6 +53,32 @@ export interface Message {
   fileType?: string;
   readBy?: string[]; // Array of UIDs who read the message
   isEdited?: boolean;
+  isPinned?: boolean;
+  pinnedBy?: string;
+  pinnedAt?: number;
+}
+
+export interface Status {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhoto?: string;
+  mediaUrl: string;
+  mediaType: 'video' | 'image' | 'audio' | 'drawing' | 'link';
+  caption?: string;
+  timestamp: number;
+  likes: string[]; // Array of UIDs
+  comments: StatusComment[];
+  views?: string[]; // Array of UIDs who viewed the status
+  pinned?: boolean;
+}
+
+export interface StatusComment {
+  id: string;
+  userId: string;
+  userName: string;
+  content: string;
+  timestamp: number;
 }
 
 export interface Call {

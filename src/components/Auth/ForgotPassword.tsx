@@ -80,12 +80,12 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
     return (
       <AuthLayout title="E-mail enviado!" subtitle="Verifique sua caixa de entrada para redefinir sua senha.">
         <div className="space-y-4">
-          <p className="text-[#dbdee1] text-center text-sm">
+          <p className="text-text-secondary text-center text-sm">
             Enviamos as instruções para o e-mail informado.
           </p>
           <button
             onClick={onBackToLogin}
-            className="w-full bg-[#5865f2] hover:bg-[#4752c4] text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center"
+            className="w-full bg-color-brand hover:bg-color-brand-hover text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center"
           >
             Voltar para o Login
           </button>
@@ -101,7 +101,7 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
     >
       <div className="space-y-6">
         {(error || securityError) && (
-          <div className="bg-[#f23f42]/10 border border-[#f23f42]/50 text-[#f23f42] p-3 rounded-md text-sm">
+          <div className="bg-color-danger/10 border border-color-danger/50 text-color-danger p-3 rounded-md text-sm">
             {error || securityError}
           </div>
         )}
@@ -109,25 +109,25 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
         {step === 'email' && (
           <form onSubmit={handleSubmit(handleEmailSubmit)} className="space-y-6">
             <div className="space-y-2">
-              <label className="text-xs font-bold uppercase text-[#b5bac1] block">E-mail</label>
+              <label className="text-xs font-bold uppercase text-text-muted block">E-mail</label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                 <input
                   {...register('email')}
                   type="email"
                   className={cn(
-                    "w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all",
-                    errors.email && "ring-2 ring-[#f23f42]"
+                    "w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all",
+                    errors.email && "ring-2 ring-color-danger"
                   )}
                   placeholder="exemplo@email.com"
                 />
               </div>
-              {errors.email && <p className="text-[#f23f42] text-xs mt-1">{errors.email.message}</p>}
+              {errors.email && <p className="text-color-danger text-xs mt-1">{errors.email.message}</p>}
             </div>
             <button
               disabled={isVerifying}
               type="submit"
-              className="w-full bg-[#5865f2] hover:bg-[#4752c4] text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50"
+              className="w-full bg-color-brand hover:bg-color-brand-hover text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50"
             >
               {isVerifying ? <Loader2 className="w-5 h-5 animate-spin" /> : "Continuar"}
             </button>
@@ -138,33 +138,33 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
           <div className="space-y-3">
             <button
               onClick={() => onReset({ email: getValues('email') })}
-              className="w-full bg-[#2b2d31] hover:bg-[#35373c] text-[#dbdee1] p-4 rounded-md border border-[#1e1f22] flex items-center space-x-4 transition-all group"
+              className="w-full bg-bg-secondary hover:bg-bg-tertiary text-text-secondary p-4 rounded-md border border-border-primary flex items-center space-x-4 transition-all group"
             >
-              <div className="bg-[#5865f2] p-2 rounded-full group-hover:scale-110 transition-transform">
+              <div className="bg-color-brand p-2 rounded-full group-hover:scale-110 transition-transform">
                 <Send className="w-5 h-5 text-white" />
               </div>
               <div className="text-left">
                 <p className="font-bold text-sm">Enviar E-mail</p>
-                <p className="text-xs text-[#949ba4]">Receba um link de redefinição</p>
+                <p className="text-xs text-text-muted">Receba um link de redefinição</p>
               </div>
             </button>
 
             {userProfile?.securityQuestion ? (
               <button
                 onClick={() => setStep('security')}
-                className="w-full bg-[#2b2d31] hover:bg-[#35373c] text-[#dbdee1] p-4 rounded-md border border-[#1e1f22] flex items-center space-x-4 transition-all group"
+                className="w-full bg-bg-secondary hover:bg-bg-tertiary text-text-secondary p-4 rounded-md border border-border-primary flex items-center space-x-4 transition-all group"
               >
-                <div className="bg-[#23a559] p-2 rounded-full group-hover:scale-110 transition-transform">
+                <div className="bg-color-success p-2 rounded-full group-hover:scale-110 transition-transform">
                   <ShieldQuestion className="w-5 h-5 text-white" />
                 </div>
                 <div className="text-left">
                   <p className="font-bold text-sm">Pergunta de Segurança</p>
-                  <p className="text-xs text-[#949ba4]">Responda para recuperar</p>
+                  <p className="text-xs text-text-muted">Responda para recuperar</p>
                 </div>
               </button>
             ) : (
-              <div className="p-3 bg-[#1e1f22] rounded-md border border-dashed border-[#3f4147]">
-                <p className="text-[10px] text-[#949ba4] text-center italic">
+              <div className="p-3 bg-bg-tertiary rounded-md border border-dashed border-border-primary">
+                <p className="text-[10px] text-text-muted text-center italic">
                   Pergunta de segurança não configurada para esta conta.
                 </p>
               </div>
@@ -175,19 +175,19 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
         {step === 'security' && (
           <form onSubmit={handleSubmit(handleSecuritySubmit)} className="space-y-6">
             <div className="space-y-4">
-              <div className="p-4 bg-[#1e1f22] rounded-md border border-[#3f4147]">
-                <p className="text-xs text-[#b5bac1] uppercase font-bold mb-1">Sua Pergunta:</p>
-                <p className="text-[#dbdee1] font-medium">{userProfile.securityQuestion}</p>
+              <div className="p-4 bg-bg-tertiary rounded-md border border-border-primary">
+                <p className="text-xs text-text-muted uppercase font-bold mb-1">Sua Pergunta:</p>
+                <p className="text-text-secondary font-medium">{userProfile.securityQuestion}</p>
               </div>
               
               <div className="space-y-2">
-                <label className="text-xs font-bold uppercase text-[#b5bac1] block">Sua Resposta</label>
+                <label className="text-xs font-bold uppercase text-text-muted block">Sua Resposta</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-[#80848e]" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted" />
                   <input
                     {...register('securityAnswer')}
                     type="text"
-                    className="w-full bg-[#1e1f22] border-none rounded-md py-2.5 pl-10 pr-4 text-[#dbdee1] focus:ring-2 focus:ring-[#5865f2] outline-none transition-all"
+                    className="w-full bg-bg-tertiary border-none rounded-md py-2.5 pl-10 pr-4 text-text-secondary focus:ring-2 focus:ring-color-brand outline-none transition-all"
                     placeholder="Digite sua resposta"
                   />
                 </div>
@@ -196,7 +196,7 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
             <button
               disabled={isVerifying}
               type="submit"
-              className="w-full bg-[#23a559] hover:bg-[#1f8f4c] text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50"
+              className="w-full bg-color-success hover:bg-color-success/80 text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50"
             >
               {isVerifying ? <Loader2 className="w-5 h-5 animate-spin" /> : "Verificar Resposta"}
             </button>
@@ -206,7 +206,7 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
         <button
           type="button"
           onClick={step === 'email' ? onBackToLogin : () => setStep('email')}
-          className="w-full flex items-center justify-center text-[#b5bac1] hover:text-white text-sm transition-colors"
+          className="w-full flex items-center justify-center text-text-muted hover:text-text-primary text-sm transition-colors"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
           {step === 'email' ? "Voltar para o Login" : "Voltar"}

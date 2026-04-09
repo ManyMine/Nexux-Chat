@@ -5,6 +5,7 @@ import { ChatArea } from './ChatArea';
 import { GeminiAssistant } from './GeminiAssistant';
 import { UserSearch } from './UserSearch';
 import { UserSettings } from './UserSettings';
+import { StatusMenu } from '../Status/StatusMenu';
 import { UserProfile, Channel, Message } from '@/src/types';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
@@ -52,6 +53,8 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   const [isUserSearchOpen, setIsUserSearchOpen] = useState(false);
   const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showStatus, setShowStatus] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState<string | undefined>();
 
   return (
     <div className="flex h-screen bg-bg-primary text-text-secondary overflow-hidden font-sans relative">
@@ -79,6 +82,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
           channels={channels}
           activeChannel={activeChannel}
           unreadChannels={unreadChannels}
+          allUsers={allUsers}
           onChannelSelect={(channel) => {
             onChannelSelect(channel);
             setIsSidebarOpen(false);
@@ -86,6 +90,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
           onLogout={onLogout}
           onOpenUserSearch={() => setIsUserSearchOpen(true)}
           onOpenUserSettings={() => setIsUserSettingsOpen(true)}
+          onOpenStatus={() => { setSelectedUserId(undefined); setShowStatus(true); }}
         />
       </div>
 
@@ -104,6 +109,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
           activeCall={activeCall}
           onStartCall={onStartCall}
           onEndCall={onEndCall}
+          onOpenStatusForUser={(userId) => { setSelectedUserId(userId); setShowStatus(true); }}
         />
         
         {/* Gemini Toggle Button (Floating) */}
@@ -112,7 +118,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             onClick={() => setShowGemini(true)}
-            className="absolute top-14 right-4 bg-[#5865f2] hover:bg-[#4752c4] text-white p-2.5 rounded-full shadow-2xl z-10 transition-all group"
+            className="absolute top-14 right-4 bg-color-brand hover:bg-color-brand-hover text-white p-2.5 rounded-full shadow-2xl z-10 transition-all group"
             title="Assistente Gemini"
           >
             <Sparkles className="w-5 h-5 group-hover:rotate-12 transition-transform" />
@@ -143,6 +149,33 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
         currentUser={currentUser}
         onLogout={onLogout}
       />
+
+      <AnimatePresence>
+        {showStatus && (
+          <div className="fixed inset-0 z-[60] flex justify-end">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowStatus(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative z-10"
+            >
+              <StatusMenu 
+                currentUser={currentUser} 
+                onClose={() => setShowStatus(false)} 
+                initialUserId={selectedUserId}
+              />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

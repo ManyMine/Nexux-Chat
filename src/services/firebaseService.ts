@@ -7,7 +7,12 @@ import {
   onAuthStateChanged,
   User as FirebaseUser,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  signInAnonymously as firebaseSignInAnonymously,
+  OAuthProvider,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult
 } from 'firebase/auth';
 import { 
   collection, 
@@ -34,8 +39,8 @@ import {
   getDownloadURL 
 } from 'firebase/storage';
 import { auth, db, storage } from '../firebase';
-import { UserProfile, Channel, Message, Call } from '../types';
-import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, CALLS_COLLECTION } from '../constants';
+import { UserProfile, Channel, Message, Call, Status, StatusComment } from '../types';
+import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, CALLS_COLLECTION, STATUSES_COLLECTION } from '../constants';
 
 export const uploadFile = async (file: File, path: string) => {
   const storageRef = ref(storage, path);
@@ -138,7 +143,7 @@ export const signUp = async (email: string, password: string, displayName: strin
     
     const userProfile: Partial<UserProfile> = {
       uid: user.uid,
-      email: user.email!,
+      email: user.email || null,
       displayName: displayName,
       status: 'online',
       createdAt: Date.now(),
@@ -199,7 +204,7 @@ export const signIn = async (identifier: string, password: string) => {
     // Fallback if profile doesn't exist
     const userProfile: Partial<UserProfile> = {
       uid: user.uid,
-      email: user.email!,
+      email: user.email || null,
       displayName: user.displayName || 'Usuário',
       status: 'online',
       createdAt: Date.now(),
@@ -240,7 +245,7 @@ export const signInWithGoogle = async () => {
     // Create profile if it doesn't exist
     const userProfile: Partial<UserProfile> = {
       uid: user.uid,
-      email: user.email!,
+      email: user.email || null,
       displayName: user.displayName || 'Usuário',
       status: 'online',
       createdAt: Date.now(),
@@ -262,12 +267,175 @@ export const signInWithGoogle = async () => {
   }
 };
 
-export const logOut = async () => {
-  if (auth.currentUser) {
+export const signInAnonymously = async () => {
+  try {
+    const result = await firebaseSignInAnonymously(auth);
+    const user = result.user;
+    
+    const expiresAt = Date.now() + (30 * 60 * 1000); // 30 minutes from now
+    
+    const userProfile: UserProfile = {
+      uid: user.uid,
+      displayName: `Visitante ${user.uid.slice(0, 4)}`,
+      status: 'online',
+      createdAt: Date.now(),
+      role: 'user',
+      isBlocked: false,
+      isPrivate: false,
+      canChat: true,
+      isAnonymous: true,
+      expiresAt
+    };
+
+    await setDoc(doc(db, USERS_COLLECTION, user.uid), userProfile);
+    return userProfile;
+  } catch (error) {
+    console.error("Anonymous Sign-In Error:", error);
+    throw error;
+  }
+};
+
+export const clearRecaptcha = () => {
+  if ((window as any).recaptchaVerifier) {
     try {
-      await updateDoc(doc(db, USERS_COLLECTION, auth.currentUser.uid), { status: 'offline' });
+      (window as any).recaptchaVerifier.clear();
+      (window as any).recaptchaVerifier = null;
+    } catch (error) {
+      console.error("Error clearing reCAPTCHA:", error);
+    }
+  }
+};
+
+export const setupRecaptcha = async (containerId: string) => {
+  try {
+    console.log("Setting up reCAPTCHA on domain:", window.location.hostname);
+    const container = document.getElementById(containerId);
+    if (!container) {
+      console.error(`reCAPTCHA container #${containerId} not found in DOM`);
+      return null;
+    }
+
+    // If already initialized and container is the same, don't re-initialize
+    if ((window as any).recaptchaVerifier && (window as any).recaptchaVerifier.containerId === containerId) {
+      return (window as any).recaptchaVerifier;
+    }
+
+    // Clear existing one if any
+    clearRecaptcha();
+
+    const verifier = new RecaptchaVerifier(auth, containerId, {
+      size: 'normal',
+      callback: (response: any) => {
+        console.log("reCAPTCHA solved successfully");
+      },
+      'expired-callback': () => {
+        console.warn("reCAPTCHA expired, clearing...");
+        clearRecaptcha();
+      },
+      'error-callback': (error: any) => {
+        console.error("reCAPTCHA error:", error);
+      }
+    });
+    
+    await verifier.render();
+    (window as any).recaptchaVerifier = verifier;
+    return verifier;
+  } catch (error: any) {
+    console.error("Recaptcha Setup Error:", error);
+    if (error.code === 'auth/network-request-failed') {
+      console.error("Network request failed during reCAPTCHA setup. This is often caused by ad-blockers or strict firewall settings blocking Google's reCAPTCHA scripts.");
+    }
+    throw error;
+  }
+};
+
+export const requestPhoneCode = async (phoneNumber: string, appVerifier: RecaptchaVerifier) => {
+  let formattedNumber = phoneNumber.trim();
+  try {
+    if (!auth) {
+      throw new Error("Firebase Auth not initialized");
+    }
+
+    // Ensure phone number is in E.164 format
+    if (!formattedNumber.startsWith('+')) {
+      // If it starts with 0, remove it (common in some countries)
+      if (formattedNumber.startsWith('0')) {
+        formattedNumber = formattedNumber.substring(1);
+      }
+      
+      // If it has 10-11 digits and no +, it's likely missing the country code
+      // We'll try to add + if it's just digits
+      if (/^\d+$/.test(formattedNumber)) {
+        formattedNumber = '+' + formattedNumber;
+      }
+    }
+
+    console.log("Requesting code for:", formattedNumber);
+    
+    // Ensure verifier is still valid
+    if (!appVerifier) {
+      throw new Error("reCAPTCHA verifier is missing");
+    }
+
+    const confirmationResult = await signInWithPhoneNumber(auth, formattedNumber, appVerifier);
+    return confirmationResult;
+  } catch (error: any) {
+    console.error("Phone Code Request Error Details:", {
+      code: error.code,
+      message: error.message,
+      phoneNumber: formattedNumber,
+      authDomain: auth.config.authDomain
+    });
+    throw error;
+  }
+};
+
+export const verifyPhoneCode = async (confirmationResult: ConfirmationResult, code: string) => {
+  try {
+    const result = await confirmationResult.confirm(code);
+    const user = result.user;
+    
+    const userDoc = await getDoc(doc(db, USERS_COLLECTION, user.uid));
+    if (userDoc.exists()) {
+      return userDoc.data() as UserProfile;
+    }
+    
+    // Create profile if it doesn't exist
+    const userProfile: UserProfile = {
+      uid: user.uid,
+      phoneNumber: user.phoneNumber || null,
+      displayName: user.displayName || `Usuário ${user.phoneNumber?.slice(-4)}`,
+      status: 'online',
+      createdAt: Date.now(),
+      role: user.phoneNumber === '+5511999999999' ? 'admin' : 'user', // Example admin check
+      isBlocked: false,
+      isPrivate: false,
+      canChat: true
+    };
+
+    await setDoc(doc(db, USERS_COLLECTION, user.uid), userProfile);
+    return userProfile;
+  } catch (error) {
+    console.error("Phone Code Verification Error:", error);
+    throw error;
+  }
+};
+
+export const logOut = async () => {
+  const user = auth.currentUser;
+  if (user) {
+    try {
+      const userDoc = await getDoc(doc(db, USERS_COLLECTION, user.uid));
+      const userData = userDoc.data() as UserProfile | undefined;
+      
+      if (userData?.isAnonymous) {
+        await deleteAccount(user.uid);
+        return; // deleteAccount handles the auth deletion
+      } else {
+        await updateDoc(doc(db, USERS_COLLECTION, user.uid), { status: 'offline' });
+      }
     } catch (e) {
-      console.error("Failed to set offline status", e);
+      console.error("Failed to handle logout", e);
     }
   }
   await signOut(auth);
@@ -371,6 +539,54 @@ export const updateUserEmail = async (email: string) => {
   }
 };
 
+export const deactivateAccount = async (userId: string) => {
+  try {
+    await updateDoc(doc(db, USERS_COLLECTION, userId), { 
+      isDeactivated: true,
+      status: 'offline'
+    });
+    await signOut(auth);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${userId}`);
+    throw error;
+  }
+};
+
+export const deleteAccount = async (userId: string) => {
+  const user = auth.currentUser;
+  if (!user || user.uid !== userId) throw new Error("Ação não autorizada");
+  
+  try {
+    const { deleteUser } = await import('firebase/auth');
+    
+    // Delete user's statuses
+    const statusesQuery = query(collection(db, STATUSES_COLLECTION), where('userId', '==', userId));
+    const statusesSnapshot = await getDocs(statusesQuery);
+    const deletePromises = statusesSnapshot.docs.map(doc => deleteDoc(doc.ref));
+    await Promise.all(deletePromises);
+
+    // Delete from Firestore first
+    await deleteDoc(doc(db, USERS_COLLECTION, userId));
+    
+    // Then delete from Auth
+    await deleteUser(user);
+  } catch (error: any) {
+    if (error.code === 'auth/requires-recent-login') {
+      throw new Error('Esta operação requer um login recente. Por favor, saia e entre novamente.');
+    }
+    throw error;
+  }
+};
+
+export const adminDeleteUser = async (userId: string) => {
+  try {
+    await deleteDoc(doc(db, USERS_COLLECTION, userId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${USERS_COLLECTION}/${userId}`);
+    throw error;
+  }
+};
+
 // --- Channels ---
 
 export const getChannels = (callback: (channels: Channel[]) => void) => {
@@ -407,7 +623,7 @@ export const createPrivateChannel = async (user1Id: string, user2Id: string) => 
   }
 };
 
-export const createChannel = async (name: string, type: 'public' | 'private', creatorId: string) => {
+export const createChannel = async (name: string, type: 'public' | 'private' | 'category', creatorId: string, parentId?: string) => {
   const channelData: Omit<Channel, 'id'> = {
     name,
     type,
@@ -415,6 +631,10 @@ export const createChannel = async (name: string, type: 'public' | 'private', cr
     createdAt: Date.now(),
     members: [creatorId]
   };
+  
+  if (parentId) {
+    channelData.parentId = parentId;
+  }
   
   try {
     const docRef = await addDoc(collection(db, CHANNELS_COLLECTION), channelData);
@@ -476,7 +696,7 @@ export const sendMessage = async (channelId: string, sender: UserProfile, conten
     channelId,
     senderId: sender.uid,
     senderName: sender.displayName,
-    senderPhoto: sender.photoURL,
+    senderPhoto: sender.photoURL || null,
     content,
     timestamp: Date.now(),
   };
@@ -524,6 +744,129 @@ export const markMessageAsRead = async (channelId: string, messageId: string, us
   }
 };
 
+export const togglePinMessage = async (channelId: string, messageId: string, isPinned: boolean, userId: string) => {
+  try {
+    const updateData: any = { isPinned };
+    if (isPinned) {
+      updateData.pinnedBy = userId;
+      updateData.pinnedAt = Date.now();
+    } else {
+      updateData.pinnedBy = null;
+      updateData.pinnedAt = null;
+    }
+    await updateDoc(doc(db, CHANNELS_COLLECTION, channelId, MESSAGES_COLLECTION, messageId), updateData);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CHANNELS_COLLECTION}/${channelId}/${MESSAGES_COLLECTION}/${messageId}`);
+    throw error;
+  }
+};
+
+export const viewStatus = async (statusId: string, userId: string) => {
+  try {
+    await updateDoc(doc(db, STATUSES_COLLECTION, statusId), {
+      views: arrayUnion(userId)
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${STATUSES_COLLECTION}/${statusId}`);
+    throw error;
+  }
+};
+
+export const createStatus = async (user: UserProfile, mediaUrl: string, mediaType: 'video' | 'image' | 'audio' | 'drawing' | 'link', caption?: string) => {
+  const statusData: Omit<Status, 'id'> = {
+    userId: user.uid,
+    userName: user.displayName,
+    userPhoto: user.photoURL || null,
+    mediaUrl,
+    mediaType,
+    caption: caption || null,
+    timestamp: Date.now(),
+    likes: [],
+    comments: []
+  };
+
+  try {
+    const docRef = await addDoc(collection(db, STATUSES_COLLECTION), statusData);
+    return { id: docRef.id, ...statusData } as Status;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, STATUSES_COLLECTION);
+    throw error;
+  }
+};
+
+export const getStatuses = (callback: (statuses: Status[]) => void) => {
+  // Only show statuses from the last 24 hours
+  const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+  const q = query(
+    collection(db, STATUSES_COLLECTION),
+    orderBy('timestamp', 'desc')
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const statuses = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return { 
+        id: doc.id, 
+        ...data,
+        mediaUrl: data.mediaUrl || data.videoUrl, // Backward compatibility
+        mediaType: data.mediaType || 'video'      // Backward compatibility
+      } as Status;
+    }).filter(status => status.timestamp > twentyFourHoursAgo);
+    callback(statuses);
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, STATUSES_COLLECTION);
+  });
+};
+
+export const likeStatus = async (statusId: string, userId: string, isLiked: boolean) => {
+  try {
+    const statusRef = doc(db, STATUSES_COLLECTION, statusId);
+    if (isLiked) {
+      await updateDoc(statusRef, { likes: arrayUnion(userId) });
+    } else {
+      const statusDoc = await getDoc(statusRef);
+      if (statusDoc.exists()) {
+        const likes = statusDoc.data().likes as string[];
+        await updateDoc(statusRef, { likes: likes.filter(id => id !== userId) });
+      }
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${STATUSES_COLLECTION}/${statusId}`);
+    throw error;
+  }
+};
+
+export const commentStatus = async (statusId: string, user: UserProfile, content: string) => {
+  const comment: StatusComment = {
+    id: Math.random().toString(36).substring(2, 9),
+    userId: user.uid,
+    userName: user.displayName,
+    content,
+    timestamp: Date.now()
+  };
+
+  try {
+    await updateDoc(doc(db, STATUSES_COLLECTION, statusId), {
+      comments: arrayUnion(comment)
+    });
+    return comment;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${STATUSES_COLLECTION}/${statusId}`);
+    throw error;
+  }
+};
+
+export const pinStatus = async (statusId: string, isPinned: boolean) => {
+  try {
+    await updateDoc(doc(db, STATUSES_COLLECTION, statusId), {
+      pinned: isPinned
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${STATUSES_COLLECTION}/${statusId}`);
+    throw error;
+  }
+};
+
 // --- Calls ---
 
 export const startCall = async (channelId: string, caller: UserProfile, participants: string[], type: 'voice' | 'video') => {
@@ -531,7 +874,7 @@ export const startCall = async (channelId: string, caller: UserProfile, particip
     channelId,
     callerId: caller.uid,
     callerName: caller.displayName,
-    callerPhoto: caller.photoURL,
+    callerPhoto: caller.photoURL || null,
     participants,
     status: 'calling',
     type,
@@ -574,10 +917,10 @@ export const saveAnswer = async (callId: string, answer: RTCSessionDescriptionIn
   }
 };
 
-export const addIceCandidate = async (callId: string, candidate: RTCIceCandidate, type: 'caller' | 'callee') => {
+export const addIceCandidate = async (callId: string, candidate: any, type: 'caller' | 'callee') => {
   try {
     const colName = type === 'caller' ? 'callerCandidates' : 'calleeCandidates';
-    await addDoc(collection(db, CALLS_COLLECTION, callId, colName), candidate.toJSON());
+    await addDoc(collection(db, CALLS_COLLECTION, callId, colName), candidate);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, `${CALLS_COLLECTION}/${callId}`);
     throw error;

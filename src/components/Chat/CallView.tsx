@@ -45,6 +45,22 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const processingRef = useRef<boolean>(false);
+  const iceCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
+
+  // Sync local stream to video element
+  useEffect(() => {
+    if (videoRef.current && streamRef.current && isVideoOn) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [isVideoOn, connectionStatus]);
+
+  // Sync remote stream to video element
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStreamRef.current && connectionStatus === 'connected') {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    }
+  }, [connectionStatus, type]);
 
   // Initialize WebRTC
   useEffect(() => {
@@ -62,7 +78,6 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
           audio: true
         });
         streamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
         setConnectionStatus('connecting');
       } catch (err) {
         console.error("Error accessing media devices:", err);
@@ -85,43 +100,55 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
       // Remote Stream
       const remoteStream = new MediaStream();
       remoteStreamRef.current = remoteStream;
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
 
       pc.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(track => {
-          remoteStream.addTrack(track);
-        });
+        console.log("Remote track received:", event.track.kind);
+        if (event.streams && event.streams[0]) {
+          remoteStreamRef.current = event.streams[0];
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+        } else {
+          // Fallback if streams are not provided
+          if (!remoteStreamRef.current) {
+            remoteStreamRef.current = new MediaStream();
+          }
+          remoteStreamRef.current.addTrack(event.track);
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStreamRef.current;
+        }
         setConnectionStatus('connected');
       };
 
       pc.oniceconnectionstatechange = () => {
         const currentPc = pcRef.current;
-        if (!currentPc || currentPc.signalingState === 'closed') return;
+        if (!currentPc) return;
         console.log("ICE Connection State:", currentPc.iceConnectionState);
-        if (currentPc.iceConnectionState === 'connected') setConnectionStatus('connected');
-        if (currentPc.iceConnectionState === 'disconnected') setConnectionStatus('disconnected');
-        if (currentPc.iceConnectionState === 'failed') setConnectionStatus('failed');
+        if (currentPc.iceConnectionState === 'connected' || currentPc.iceConnectionState === 'completed') {
+          setConnectionStatus('connected');
+        } else if (currentPc.iceConnectionState === 'disconnected') {
+          setConnectionStatus('disconnected');
+        } else if (currentPc.iceConnectionState === 'failed' || currentPc.iceConnectionState === 'closed') {
+          setConnectionStatus('failed');
+        }
       };
 
       pc.onicecandidate = (event) => {
         const currentPc = pcRef.current;
-        if (event.candidate && currentPc && currentPc.localDescription && currentPc.signalingState !== 'closed') {
+        if (event.candidate && currentPc && currentPc.localDescription) {
           const role = currentPc.localDescription.type === 'offer' ? 'caller' : 'callee';
-          addIceCandidate(callId, event.candidate, role);
+          addIceCandidate(callId, event.candidate.toJSON(), role);
         }
       };
 
       // Signaling
       unsubscribeSignaling = listenForSignaling(callId, async (data) => {
         const currentPc = pcRef.current;
-        if (!currentPc || currentPc.signalingState === 'closed') return;
+        if (!currentPc || currentPc.signalingState === 'closed' || processingRef.current) return;
 
         try {
+          processingRef.current = true;
           // If I am the caller and I get an answer
           if (data.callerId === currentUser.uid) {
-            if (!data.offer) {
+            if (!data.offer && currentPc.signalingState === 'stable') {
               const offerDescription = await currentPc.createOffer();
-              if (currentPc.signalingState === 'closed') return;
               await currentPc.setLocalDescription(offerDescription);
               await saveOffer(callId, {
                 type: offerDescription.type,
@@ -129,41 +156,66 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
               });
 
               // Start listening for callee candidates
-              unsubscribeIce = listenForIceCandidates(callId, 'callee', (candidate) => {
-                const pcNow = pcRef.current;
-                if (pcNow && pcNow.signalingState !== 'closed' && candidate) {
-                  pcNow.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding ICE candidate:", e));
-                }
-              });
-            } else if (data.answer && !currentPc.currentRemoteDescription) {
+              if (!unsubscribeIce) {
+                unsubscribeIce = listenForIceCandidates(callId, 'callee', (candidate) => {
+                  const pcNow = pcRef.current;
+                  if (pcNow && pcNow.signalingState !== 'closed' && candidate) {
+                    if (pcNow.remoteDescription) {
+                      pcNow.addIceCandidate(candidate).catch(e => console.error("Error adding callee ICE candidate:", e));
+                    } else {
+                      iceCandidatesQueue.current.push(candidate);
+                    }
+                  }
+                });
+              }
+            } else if (data.answer && currentPc.signalingState === 'have-local-offer') {
               const answerDescription = new RTCSessionDescription(data.answer);
               await currentPc.setRemoteDescription(answerDescription);
+              
+              // Process queued candidates
+              while (iceCandidatesQueue.current.length > 0) {
+                const cand = iceCandidatesQueue.current.shift();
+                if (cand) currentPc.addIceCandidate(cand).catch(e => console.error("Error adding queued callee ICE candidate:", e));
+              }
             }
           }
 
           // If I am NOT the caller and I get an offer
-          if (data.callerId !== currentUser.uid && data.offer && !currentPc.currentRemoteDescription) {
+          if (data.callerId !== currentUser.uid && data.offer && currentPc.signalingState === 'stable') {
             const offerDescription = new RTCSessionDescription(data.offer);
             await currentPc.setRemoteDescription(offerDescription);
 
             const answerDescription = await currentPc.createAnswer();
-            if (currentPc.signalingState === 'closed') return;
             await currentPc.setLocalDescription(answerDescription);
             await saveAnswer(callId, {
               type: answerDescription.type,
               sdp: answerDescription.sdp
             });
 
+            // Process queued candidates
+            while (iceCandidatesQueue.current.length > 0) {
+              const cand = iceCandidatesQueue.current.shift();
+              if (cand) currentPc.addIceCandidate(cand).catch(e => console.error("Error adding queued caller ICE candidate:", e));
+            }
+
             // Start listening for caller candidates
-            unsubscribeIce = listenForIceCandidates(callId, 'caller', (candidate) => {
-              const pcNow = pcRef.current;
-              if (pcNow && pcNow.signalingState !== 'closed' && candidate) {
-                pcNow.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => console.error("Error adding ICE candidate:", e));
-              }
-            });
+            if (!unsubscribeIce) {
+              unsubscribeIce = listenForIceCandidates(callId, 'caller', (candidate) => {
+                const pcNow = pcRef.current;
+                if (pcNow && pcNow.signalingState !== 'closed' && candidate) {
+                  if (pcNow.remoteDescription) {
+                    pcNow.addIceCandidate(candidate).catch(e => console.error("Error adding caller ICE candidate:", e));
+                  } else {
+                    iceCandidatesQueue.current.push(candidate);
+                  }
+                }
+              });
+            }
           }
         } catch (err) {
           console.error("Signaling error:", err);
+        } finally {
+          processingRef.current = false;
         }
       });
     };
@@ -197,12 +249,17 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
     const startScreenShare = async () => {
       if (isScreenSharing) {
         try {
+          if (!navigator.mediaDevices.getDisplayMedia) {
+            alert("Compartilhamento de tela não é suportado neste navegador ou dispositivo.");
+            setIsScreenSharing(false);
+            return;
+          }
           const stream = await navigator.mediaDevices.getDisplayMedia({ 
             video: true,
             audio: true
           });
           screenStreamRef.current = stream;
-          if (screenVideoRef.current) {
+          if (screenVideoRef.current && stream) {
             screenVideoRef.current.srcObject = stream;
           }
           
@@ -281,7 +338,11 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
         {isScreenSharing && (
           <div className="w-full max-w-[800px] aspect-video bg-bg-tertiary rounded-xl flex items-center justify-center overflow-hidden ring-2 ring-[#5865f2] relative group">
             <video 
-              ref={screenVideoRef}
+              ref={(el) => {
+                if (el && screenStreamRef.current) {
+                  el.srcObject = screenStreamRef.current;
+                }
+              }}
               autoPlay 
               playsInline 
               className="w-full h-full object-contain"

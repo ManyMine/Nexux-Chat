@@ -21,6 +21,7 @@ import {
   createPrivateChannel,
   getUsers,
   signInWithGoogle,
+  signInAnonymously,
   updateUserStatus,
   uploadFile,
   startTyping,
@@ -28,9 +29,14 @@ import {
   getTypingUsers,
   startCall,
   updateCallStatus,
-  listenForIncomingCalls
+  listenForIncomingCalls,
+  setupRecaptcha,
+  requestPhoneCode,
+  verifyPhoneCode,
+  clearRecaptcha
 } from './services/firebaseService';
 import { Loader2 } from 'lucide-react';
+import { ConfirmationResult } from 'firebase/auth';
 
 type View = 'login' | 'signup' | 'forgot-password' | 'chat';
 
@@ -52,20 +58,34 @@ export default function App() {
   // Call State
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
   const [activeCall, setActiveCall] = useState<{ id: string, type: 'voice' | 'video', channel: Channel } | null>(null);
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+
+  // Theme persistence
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('theme');
+    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
+  });
+
+  // Keep localStorage in sync with theme state
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   // Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeProfile: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        try {
-          const userDoc = await getDoc(doc(db, USERS_COLLECTION, user.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data() as UserProfile;
+        // Set up real-time listener for user profile
+        unsubscribeProfile = onSnapshot(doc(db, USERS_COLLECTION, user.uid), async (snapshot) => {
+          if (snapshot.exists()) {
+            const userData = snapshot.data() as UserProfile;
             
             // Force admin role for belepuff@gmail.com if not already set
             if (user.email === 'belepuff@gmail.com' && userData.role !== 'admin') {
-              userData.role = 'admin';
               await setDoc(doc(db, USERS_COLLECTION, user.uid), { role: 'admin' }, { merge: true });
+              return; // The listener will trigger again
             }
 
             if (userData.isBlocked) {
@@ -75,10 +95,22 @@ export default function App() {
               setIsLoading(false);
               return;
             }
+
+            if (userData.isDeactivated) {
+              setAuthError("Sua conta está desativada. Entre em contato com o suporte.");
+              await logOut();
+              setView('login');
+              setIsLoading(false);
+              return;
+            }
+
+            const currentTheme = userData.theme || 'dark';
+            setTheme(currentTheme);
+            localStorage.setItem('theme', currentTheme);
+
             setCurrentUser(userData);
             await updateUserStatus(user.uid, 'online');
-            const users = await getUsers();
-            setAllUsers(users.filter(u => u.uid !== user.uid));
+            setView('chat');
           } else {
             // Create profile if missing
             const profile: UserProfile = {
@@ -92,21 +124,25 @@ export default function App() {
               isBlocked: false
             };
             await setDoc(doc(db, USERS_COLLECTION, user.uid), profile);
-            setCurrentUser(profile);
           }
-          setView('chat');
-        } catch (error) {
-          console.error("Error fetching user profile:", error);
+          setIsLoading(false);
+        }, (error) => {
+          console.error("Error listening to user profile:", error);
           setAuthError("Erro ao carregar perfil do usuário.");
-        }
+          setIsLoading(false);
+        });
       } else {
+        if (unsubscribeProfile) unsubscribeProfile();
         setCurrentUser(null);
         setView('login');
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
   }, []);
 
   // Channels Listener
@@ -278,6 +314,66 @@ export default function App() {
     }
   };
 
+  const handlePhoneLogin = async (phoneNumber: string, code: string) => {
+    setIsLoading(true);
+    setAuthError(null);
+    try {
+      if (!confirmationResult) {
+        // Step 1: Request code
+        let appVerifier = (window as any).recaptchaVerifier;
+        if (!appVerifier) {
+          appVerifier = await setupRecaptcha('recaptcha-container');
+        }
+        const result = await requestPhoneCode(phoneNumber.trim(), appVerifier);
+        setConfirmationResult(result);
+      } else {
+        // Step 2: Verify code
+        const userProfile = await verifyPhoneCode(confirmationResult, code);
+        if (userProfile.isBlocked) {
+          setAuthError("Sua conta foi bloqueada por um administrador.");
+          await logOut();
+        }
+        setConfirmationResult(null);
+      }
+    } catch (error: any) {
+      console.error("Phone Login Error:", error);
+      if (error.code === 'auth/invalid-phone-number') {
+        setAuthError('Número de telefone inválido.');
+      } else if (error.code === 'auth/too-many-requests') {
+        setAuthError('Muitas solicitações. Tente novamente mais tarde.');
+      } else if (error.code === 'auth/invalid-verification-code') {
+        setAuthError('Código de verificação inválido.');
+      } else if (error.code === 'auth/internal-error') {
+        setAuthError('Erro interno do Firebase. Isso geralmente ocorre por número mal formatado ou se o domínio não está autorizado. Tente recarregar a página.');
+      } else if (error.code === 'auth/network-request-failed') {
+        setAuthError('Erro de rede. Verifique sua conexão ou desative bloqueadores de anúncios (AdBlock) que podem estar impedindo o carregamento do reCAPTCHA.');
+      } else {
+        setAuthError('Ocorreu um erro ao fazer login com o telefone.');
+      }
+      // Reset recaptcha if error
+      clearRecaptcha();
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAnonymousLogin = async () => {
+    setIsLoading(true);
+    setAuthError(null);
+    try {
+      await signInAnonymously();
+    } catch (error: any) {
+      console.error("Anonymous Login Error:", error);
+      if (error.code === 'auth/admin-restricted-operation') {
+        setAuthError('O Login Anônimo não está ativado no Console do Firebase. Por favor, ative-o em Authentication > Sign-in method.');
+      } else {
+        setAuthError('Ocorreu um erro ao entrar como visitante.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSignUp = async (values: any) => {
     setIsLoading(true);
     setAuthError(null);
@@ -405,11 +501,82 @@ export default function App() {
     }
   };
 
-  const backgroundStyle = currentUser?.background?.type === 'color' 
-    ? { backgroundColor: currentUser.background.value } 
-    : {};
+  // Anonymous session timer
+  useEffect(() => {
+    if (currentUser?.isAnonymous && currentUser.expiresAt) {
+      const checkExpiration = () => {
+        const now = Date.now();
+        if (now >= currentUser.expiresAt!) {
+          logOut();
+          setAuthError("Sua sessão de visitante de 30 minutos expirou.");
+          setView('login');
+        }
+      };
 
-  const themeClass = currentUser?.theme === 'light' ? 'light' : '';
+      const interval = setInterval(checkExpiration, 10000); // Check every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [currentUser]);
+
+  // Dynamic Styles
+  const customStyles = React.useMemo(() => {
+    if (!currentUser) return {};
+    
+    const styles: any = {};
+    
+    if (currentUser.primaryColor) {
+      styles['--brand'] = currentUser.primaryColor;
+      styles['--brand-hover'] = currentUser.primaryColor + 'dd';
+    }
+
+    if (currentUser.accentColor) {
+      styles['--accent'] = currentUser.accentColor;
+    }
+    
+    if (currentUser.background) {
+      const isDark = theme === 'dark';
+      const hasMediaBg = currentUser.background.type === 'video' || currentUser.background.type === 'gif';
+      const isGradientOrPattern = currentUser.background.type === 'gradient' || currentUser.background.type === 'pattern';
+      
+      if (currentUser.background.type === 'color') {
+        styles['backgroundColor'] = currentUser.background.value;
+      } else if (currentUser.background.type === 'gradient') {
+        styles['background'] = currentUser.background.value;
+      } else if (currentUser.background.type === 'pattern') {
+        // Simple CSS patterns
+        const patterns: Record<string, string> = {
+          'dots': 'radial-gradient(circle, currentColor 1px, transparent 1px)',
+          'lines': 'linear-gradient(45deg, currentColor 1px, transparent 1px)',
+          'grid': 'linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)'
+        };
+        const patternBase = patterns[currentUser.background.patternId || 'dots'];
+        styles['backgroundImage'] = patternBase;
+        styles['backgroundSize'] = '20px 20px';
+        styles['color'] = isDark ? '#ffffff11' : '#00000011'; // Pattern color
+      }
+
+      // If there's a custom background, make the UI elements semi-transparent
+      const baseAlpha = hasMediaBg || currentUser.background.type === 'color' || isGradientOrPattern ? 'cc' : ''; // 80% opacity
+      
+      if (baseAlpha) {
+        if (isDark) {
+          styles['--bg-primary'] = '#313338' + baseAlpha;
+          styles['--bg-secondary'] = '#2b2d31' + baseAlpha;
+          styles['--bg-tertiary'] = '#1e1f22' + baseAlpha;
+          styles['--bg-overlay'] = '#111214' + baseAlpha;
+        } else {
+          styles['--bg-primary'] = '#ffffff' + baseAlpha;
+          styles['--bg-secondary'] = '#f2f3f5' + baseAlpha;
+          styles['--bg-tertiary'] = '#e3e5e8' + baseAlpha;
+          styles['--bg-overlay'] = '#ebedef' + baseAlpha;
+        }
+      }
+    }
+    
+    return styles;
+  }, [currentUser]);
+
+  const themeClass = theme === 'light' ? 'light' : '';
 
   if (isLoading && !currentUser) {
     return (
@@ -420,16 +587,18 @@ export default function App() {
   }
 
   return (
-    <div style={backgroundStyle} className={`min-h-screen ${themeClass}`}>
+    <div style={customStyles} className={`min-h-screen ${themeClass} transition-colors duration-300`}>
       {currentUser?.background?.type === 'video' || currentUser?.background?.type === 'gif' ? (
         <div className="fixed inset-0 z-[-1] overflow-hidden pointer-events-none">
           {currentUser.background.type === 'video' ? (
             <video 
+              key={currentUser.background.value}
               autoPlay 
               muted 
               loop 
               playsInline 
-              className="w-full h-full object-cover opacity-30"
+              className="w-full h-full object-cover"
+              style={{ opacity: (currentUser.background.opacity ?? 30) / 100 }}
             >
               <source src={currentUser.background.value} />
             </video>
@@ -437,7 +606,9 @@ export default function App() {
             <img 
               src={currentUser.background.value} 
               alt="background" 
-              className="w-full h-full object-cover opacity-30"
+              className="w-full h-full object-cover"
+              style={{ opacity: (currentUser.background.opacity ?? 30) / 100 }}
+              referrerPolicy="no-referrer"
             />
           )}
         </div>
@@ -448,8 +619,11 @@ export default function App() {
           onSignUpClick={() => setView('signup')}
           onForgotPasswordClick={() => setView('forgot-password')}
           onGoogleLogin={handleGoogleLogin}
+          onPhoneLogin={handlePhoneLogin}
+          onAnonymousLogin={handleAnonymousLogin}
           isLoading={isLoading}
           error={authError}
+          step={confirmationResult ? 'code' : 'phone'}
         />
       )}
       {view === 'signup' && (
