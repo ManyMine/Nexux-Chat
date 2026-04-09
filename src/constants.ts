@@ -6,3 +6,4 @@ export const USERS_COLLECTION = "users";
 export const TYPING_COLLECTION = "typing";
 export const CALLS_COLLECTION = "calls";
 export const STATUSES_COLLECTION = "statuses";
+export const REPORTS_COLLECTION = "reports";

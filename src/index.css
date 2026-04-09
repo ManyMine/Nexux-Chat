@@ -133,3 +133,7 @@
   object-fit: cover;
   opacity: 0.25;
 }
+
+.simple-mode .sidebar {
+  display: none !important;
+}

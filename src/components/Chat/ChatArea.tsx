@@ -9,9 +9,17 @@ import { UserList } from './UserList';
 import { ChannelSettings } from './ChannelSettings';
 import { CallView } from './CallView';
 import { IncomingCallModal } from './IncomingCallModal';
+import { UserStatusView } from '../Status/UserStatusView';
 import { updateChannel, deleteChannel, deleteMessage, markMessageAsRead, getUsers, editMessage, createPrivateChannel, createChannel, startCall, updateCallStatus, listenForIncomingCalls, toggleChatAccess, togglePinMessage } from '@/src/services/firebaseService';
 import { translateText, chatWithGemini } from '@/src/services/geminiService';
 import { useI18n } from '@/src/lib/i18n';
+import { Status } from '@/src/types';
+import { STATUSES_COLLECTION } from '@/src/constants';
+import { db } from '@/src/firebase';
+import { onSnapshot, collection, query } from 'firebase/firestore';
+
+import { UserProfileModal } from './UserProfileModal';
+import { AddMembersModal } from './AddMembersModal';
 
 interface ChatAreaProps {
   activeChannel: Channel | null;
@@ -50,7 +58,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showUsers, setShowUsers] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showPinned, setShowPinned] = useState(false);
+  const [showAddMembers, setShowAddMembers] = useState(false);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [statuses, setStatuses] = useState<Status[]>([]);
+  const [selectedStatusUserId, setSelectedStatusUserId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
@@ -59,6 +70,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showGiftPicker, setShowGiftPicker] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, message: Message } | null>(null);
   const [userContextMenu, setUserContextMenu] = useState<{ x: number, y: number, user: UserProfile } | null>(null);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
@@ -81,6 +93,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       }
     };
     fetchUsers();
+  }, []);
+
+  useEffect(() => {
+    const q = query(collection(db, STATUSES_COLLECTION));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedStatuses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Status));
+      setStatuses(fetchedStatuses);
+    }, (error) => {
+      console.error("Error listening to statuses:", error);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -130,9 +153,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
 
     if (input.trim() || fileInputRef.current?.files?.[0]) {
+      const file = fileInputRef.current?.files?.[0];
+      if (file) setIsUploading(true);
+      
       if (input.trim().startsWith('/gem ')) {
         const prompt = input.trim().substring(5);
-        onSendMessage(input, fileInputRef.current?.files?.[0]);
+        onSendMessage(input, file).finally(() => setIsUploading(false));
         setInput('');
         onStopTyping();
         
@@ -141,7 +167,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           onSendMessage(`Gemini: ${response}`);
         });
       } else {
-        onSendMessage(input, fileInputRef.current?.files?.[0]);
+        onSendMessage(input, file).finally(() => setIsUploading(false));
         setInput('');
         onStopTyping();
       }
@@ -195,6 +221,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       await updateChannel(channelId, data);
     } catch (error) {
       console.error("Error updating channel:", error);
+    }
+  };
+
+  const [selectedUserProfile, setSelectedUserProfile] = useState<UserProfile | null>(null);
+
+  const handleUserClick = (userId: string) => {
+    const user = allUsers.find(u => u.uid === userId);
+    if (user) {
+      setSelectedUserProfile(user);
     }
   };
 
@@ -261,6 +296,113 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
+  const handleBulkPin = async () => {
+    if (!activeChannel || selectedMessageIds.length === 0) return;
+    try {
+      const promises = selectedMessageIds.map(id => {
+        const msg = messages.find(m => m.id === id);
+        if (msg) return togglePinMessage(activeChannel.id, id, true, currentUser.uid);
+        return Promise.resolve();
+      });
+      await Promise.all(promises);
+      setSelectedMessageIds([]);
+      setIsMultiSelectMode(false);
+    } catch (error) {
+      console.error("Error bulk pinning:", error);
+    }
+  };
+
+  const handleBulkCopy = () => {
+    if (selectedMessageIds.length === 0) return;
+    const selectedMsgs = messages
+      .filter(m => selectedMessageIds.includes(m.id))
+      .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+    
+    const transcript = selectedMsgs.map(m => {
+      const sender = allUsers.find(u => u.uid === m.senderId)?.displayName || 'Usuário';
+      return `[${m.timestamp?.toDate().toLocaleString() || ''}] ${sender}: ${m.content}`;
+    }).join('\n');
+
+    navigator.clipboard.writeText(transcript);
+    alert("Transcrição copiada para a área de transferência!");
+    setSelectedMessageIds([]);
+    setIsMultiSelectMode(false);
+  };
+
+  const handleBulkExport = () => {
+    if (selectedMessageIds.length === 0) return;
+    const selectedMsgs = messages
+      .filter(m => selectedMessageIds.includes(m.id))
+      .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+    
+    const transcript = selectedMsgs.map(m => {
+      const sender = allUsers.find(u => u.uid === m.senderId)?.displayName || 'Usuário';
+      return `[${m.timestamp?.toDate().toLocaleString() || ''}] ${sender}: ${m.content}`;
+    }).join('\n');
+
+    const blob = new Blob([transcript], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nexus-chat-export-${activeChannel?.name || 'chat'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    setSelectedMessageIds([]);
+    setIsMultiSelectMode(false);
+  };
+
+  const handleBulkTranslate = async () => {
+    if (selectedMessageIds.length === 0) return;
+    const targetLang = currentUser.language || 'pt';
+    const langNames: Record<string, string> = {
+      'pt': 'Português',
+      'en': 'Inglês',
+      'es': 'Espanhol',
+      'ja': 'Japonês'
+    };
+
+    try {
+      const promises = selectedMessageIds.map(async (id) => {
+        const msg = messages.find(m => m.id === id);
+        if (msg && !translatedMessages[id]) {
+          const translation = await translateText(msg.content, langNames[targetLang] || 'Português');
+          return { id, translation };
+        }
+        return null;
+      });
+
+      const results = await Promise.all(promises);
+      const newTranslations = { ...translatedMessages };
+      results.forEach(res => {
+        if (res) newTranslations[res.id] = res.translation;
+      });
+      setTranslatedMessages(newTranslations);
+      setSelectedMessageIds([]);
+      setIsMultiSelectMode(false);
+    } catch (error) {
+      console.error("Error bulk translating:", error);
+    }
+  };
+
+  const handleBulkForward = () => {
+    if (selectedMessageIds.length === 0) return;
+    const selectedMsgs = messages
+      .filter(m => selectedMessageIds.includes(m.id))
+      .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+    
+    const content = selectedMsgs.map(m => m.content).join('\n');
+    setInput(prev => (prev ? prev + '\n' : '') + content);
+    setSelectedMessageIds([]);
+    setIsMultiSelectMode(false);
+    
+    // Focus input
+    const inputEl = document.getElementById('chat-input');
+    if (inputEl) inputEl.focus();
+  };
+
   const handleTouchEnd = () => {
     if (touchTimeoutRef.current) {
       clearTimeout(touchTimeoutRef.current);
@@ -291,11 +433,53 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     return allUsers.find(u => u.uid === otherUserId);
   };
 
+  const channelBgStyles = React.useMemo(() => {
+    if (!activeChannel?.background) return {};
+    
+    const bg = activeChannel.background;
+    const styles: any = {};
+    
+    if (bg.type === 'color') {
+      styles['backgroundColor'] = bg.value;
+    } else if (bg.type === 'gradient') {
+      styles['background'] = bg.value;
+    } else if (bg.type === 'pattern') {
+      const patterns: Record<string, string> = {
+        'dots': 'radial-gradient(circle, currentColor 1px, transparent 1px)',
+        'lines': 'linear-gradient(45deg, currentColor 1px, transparent 1px)',
+        'grid': 'linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)'
+      };
+      styles['backgroundImage'] = patterns[bg.patternId || 'dots'];
+      styles['backgroundSize'] = '20px 20px';
+      styles['color'] = bg.patternColor || '#ffffff11';
+      styles['backgroundColor'] = 'transparent';
+    }
+
+    const filters = [];
+    if (bg.brightness !== undefined) {
+      filters.push(`brightness(${bg.brightness}%)`);
+    }
+    if (bg.contrast !== undefined) {
+      filters.push(`contrast(${bg.contrast}%)`);
+    }
+    if (filters.length > 0) {
+      styles['filter'] = filters.join(' ');
+    }
+    
+    if (bg.opacity !== undefined) {
+      styles['opacity'] = bg.opacity / 100;
+    } else {
+      styles['opacity'] = 0.3;
+    }
+
+    return styles;
+  }, [activeChannel?.background]);
+
   const otherUser = getOtherUser();
 
   if (!activeChannel) {
     return (
-      <div className="flex-1 bg-bg-primary flex flex-col items-center justify-center p-8 text-center space-y-4">
+      <div className="flex-1 bg-transparent flex flex-col items-center justify-center p-8 text-center space-y-4">
         <div className="bg-color-brand p-6 rounded-full shadow-2xl">
           <Hash className="w-16 h-16 text-white" />
         </div>
@@ -312,24 +496,62 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     : [];
 
   return (
-    <div className="flex-1 bg-bg-primary flex flex-col h-full overflow-hidden relative">
-      {/* Header */}
-      <ChannelHeader 
-        channel={activeChannel}
-        otherUser={otherUser}
-        onShowUsers={() => setShowUsers(!showUsers)}
-        onShowSettings={() => setShowSettings(true)}
-        showUsers={showUsers}
-        onToggleSidebar={onToggleSidebar}
-        onStartCall={onStartCall}
-        onSearch={(query) => {
-          setSearchQuery(query);
-          setIsSearching(!!query);
-        }}
-        onShowPinned={() => setShowPinned(!showPinned)}
-      />
+    <div className={cn("flex-1 flex flex-col h-full overflow-hidden relative", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}>
+      {/* Channel Background Layer */}
+      {activeChannel?.background && (
+        <div 
+          className="absolute inset-0 z-0 pointer-events-none"
+          style={channelBgStyles}
+        >
+          {['video', 'gif', 'image'].includes(activeChannel.background.type) && activeChannel.background.value?.trim() && (
+            activeChannel.background.type === 'video' ? (
+              <video 
+                key={activeChannel.background.value}
+                autoPlay 
+                muted 
+                loop 
+                playsInline 
+                className="w-full h-full object-cover"
+              >
+                <source src={activeChannel.background.value} />
+              </video>
+            ) : (
+              <img 
+                src={activeChannel.background.value} 
+                alt="channel background" 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+            )
+          )}
+        </div>
+      )}
 
-      <div className="flex flex-1 overflow-hidden flex-col relative">
+      {/* Header */}
+      <div className="relative z-10">
+        <ChannelHeader 
+          channel={activeChannel}
+          otherUser={otherUser}
+          onShowUsers={() => setShowUsers(!showUsers)}
+          onShowSettings={() => setShowSettings(true)}
+          onAddMembers={() => setShowAddMembers(true)}
+          showUsers={showUsers}
+          onToggleSidebar={onToggleSidebar}
+          onStartCall={onStartCall}
+          onSearch={(query) => {
+            setSearchQuery(query);
+            setIsSearching(!!query);
+          }}
+          onShowPinned={() => setShowPinned(!showPinned)}
+          onToggleMultiSelect={() => {
+            setIsMultiSelectMode(!isMultiSelectMode);
+            setSelectedMessageIds([]);
+          }}
+          isMultiSelectMode={isMultiSelectMode}
+        />
+      </div>
+
+      <div className="flex flex-1 overflow-hidden flex-col relative z-10">
         {/* Search Results Overlay */}
         <AnimatePresence>
           {isSearching && searchQuery && (
@@ -540,7 +762,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       <img 
                         src={msg.senderPhoto || DEFAULT_AVATAR} 
                         alt={msg.senderName}
-                        className="w-10 h-10 rounded-full object-cover mt-1 flex-shrink-0"
+                        onClick={() => handleUserClick(msg.senderId)}
+                        className="w-10 h-10 rounded-full object-cover mt-1 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                         referrerPolicy="no-referrer"
                       />
                     ) : (
@@ -551,7 +774,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     <div className="flex-1 min-w-0">
                       {!isSameUserAsPrev && (
                         <div className="flex items-center space-x-2 mb-0.5">
-                          <span className="font-bold text-text-primary hover:underline cursor-pointer">{msg.senderName}</span>
+                          <span 
+                            onClick={() => handleUserClick(msg.senderId)}
+                            className="font-bold text-text-primary hover:underline cursor-pointer"
+                          >
+                            {msg.senderName}
+                          </span>
                           <span className="text-[10px] text-text-muted">{time}</span>
                         </div>
                       )}
@@ -665,22 +893,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           {msg.isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
                         </button>
                         {msg.senderId === currentUser.uid && (
-                          <>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); handleEditClick(msg); }}
-                              className="p-1.5 hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors"
-                              title="Editar"
-                            >
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); setDeletingMessageId(msg.id); }}
-                              className="p-1.5 hover:bg-bg-secondary text-text-muted hover:text-color-danger transition-colors"
-                              title="Excluir"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleEditClick(msg); }}
+                            className="p-1.5 hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors"
+                            title="Editar"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
+                        {(msg.senderId === currentUser.uid || currentUser.role === 'admin') && (
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setDeletingMessageId(msg.id); }}
+                            className="p-1.5 hover:bg-bg-secondary text-text-muted hover:text-color-danger transition-colors"
+                            title="Excluir"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
                     )}
@@ -888,13 +1116,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 )}
                 <button 
                   type="submit" 
-                  disabled={editingMessageId ? !editContent.trim() : !input.trim()}
+                  disabled={isUploading || (editingMessageId ? !editContent.trim() : !input.trim())}
                   className={cn(
                     "p-1.5 rounded-full transition-all",
-                    (editingMessageId ? editContent.trim() : input.trim()) ? "bg-color-brand text-white" : "text-text-muted"
+                    (editingMessageId ? editContent.trim() : input.trim()) ? "bg-color-brand text-white" : "text-text-muted",
+                    isUploading && "bg-bg-tertiary"
                   )}
                 >
-                  <Send className="w-4 h-4" />
+                  {isUploading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-color-brand" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </form>
@@ -919,11 +1152,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   e.preventDefault();
                   setUserContextMenu({ x: e.clientX, y: e.clientY, user });
                 }}
+                onUserClick={(user) => setSelectedStatusUserId(user.uid)}
               />
             )}
           </AnimatePresence>
         </div>
       </div>
+
+      {selectedStatusUserId && (
+        <UserStatusView
+          userId={selectedStatusUserId}
+          allStatuses={statuses}
+          onClose={() => setSelectedStatusUserId(null)}
+        />
+      )}
 
       {/* Multi-select Floating Bar */}
       <AnimatePresence>
@@ -1040,6 +1282,19 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <CheckSquare className="w-4 h-4" />
             </button>
             
+            {contextMenu.message.senderId !== currentUser.uid && allUsers.find(u => u.uid === contextMenu.message.senderId)?.role !== 'admin' && (
+              <button 
+                onClick={() => { 
+                  alert(`Mensagem de ${contextMenu.message.senderName} denunciada.`); 
+                  setContextMenu(null); 
+                }}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#f23f42] hover:text-white transition-colors group"
+              >
+                <span>Denunciar</span>
+                <Shield className="w-4 h-4" />
+              </button>
+            )}
+            
             <button 
               onClick={() => { 
                 setShowSettings(true); 
@@ -1063,11 +1318,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </button>
             
             <button 
-              onClick={async () => { 
-                const name = prompt("Nome do novo grupo:");
-                if (name) {
-                  await createChannel(name, 'public', currentUser.uid);
-                }
+              onClick={() => { 
+                // Redirect to sidebar for channel creation or just close
                 setContextMenu(null); 
               }}
               className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-color-brand hover:text-white transition-colors group"
@@ -1077,11 +1329,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </button>
             
             <button 
-              onClick={async () => { 
-                const name = prompt("Nome do novo canal:");
-                if (name) {
-                  await createChannel(name, 'public', currentUser.uid);
-                }
+              onClick={() => { 
+                // Redirect to sidebar for channel creation or just close
                 setContextMenu(null); 
               }}
               className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-color-brand hover:text-white transition-colors group"
@@ -1117,7 +1366,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <span>Copiar Texto</span>
               <Copy className="w-4 h-4" />
             </button>
-            {contextMenu.message.senderId === currentUser.uid && (
+            {(contextMenu.message.senderId === currentUser.uid || currentUser.role === 'admin') && (
               <>
                 <div className="h-px bg-border-primary my-1 mx-2" />
                 <button
@@ -1190,7 +1439,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </button>
             <button 
               onClick={() => { 
-                alert(`Perfil de ${userContextMenu.user.displayName}\nStatus: ${userContextMenu.user.status}`); 
+                handleUserClick(userContextMenu.user.uid);
                 setUserContextMenu(null); 
               }}
               className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
@@ -1210,9 +1459,132 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 <VolumeX className="w-4 h-4" />
               </button>
             )}
+            {userContextMenu.user.uid !== currentUser.uid && userContextMenu.user.role !== 'admin' && (
+              <button 
+                onClick={() => { 
+                  alert(`Usuário ${userContextMenu.user.displayName} denunciado.`); 
+                  setUserContextMenu(null); 
+                }}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#f23f42] hover:text-white transition-colors group"
+              >
+                <span>Denunciar</span>
+                <Shield className="w-4 h-4" />
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
+      {/* User Profile Modal */}
+      {/* Multi-Select Toolbar */}
+      <AnimatePresence>
+        {isMultiSelectMode && (
+          <motion.div
+            initial={{ y: 100 }}
+            animate={{ y: 0 }}
+            exit={{ y: 100 }}
+            className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-bg-overlay border border-border-primary rounded-full shadow-2xl px-6 py-3 flex items-center space-x-4 z-[60]"
+          >
+            <div className="flex items-center space-x-2 mr-4 border-r border-border-primary pr-4">
+              <CheckSquare className="w-5 h-5 text-color-brand" />
+              <span className="text-sm font-bold text-text-primary">{selectedMessageIds.length} selecionadas</span>
+            </div>
+            
+            <button 
+              onClick={handleBulkPin}
+              disabled={selectedMessageIds.length === 0}
+              className="p-2 hover:bg-bg-tertiary rounded-full text-text-muted hover:text-text-primary transition-colors disabled:opacity-30"
+              title="Fixar Selecionadas"
+            >
+              <Pin className="w-5 h-5" />
+            </button>
+            
+            <button 
+              onClick={handleBulkCopy}
+              disabled={selectedMessageIds.length === 0}
+              className="p-2 hover:bg-bg-tertiary rounded-full text-text-muted hover:text-text-primary transition-colors disabled:opacity-30"
+              title="Copiar Transcrição"
+            >
+              <Copy className="w-5 h-5" />
+            </button>
+
+            <button 
+              onClick={handleBulkTranslate}
+              disabled={selectedMessageIds.length === 0}
+              className="p-2 hover:bg-bg-tertiary rounded-full text-text-muted hover:text-text-primary transition-colors disabled:opacity-30"
+              title="Traduzir Selecionadas"
+            >
+              <Languages className="w-5 h-5" />
+            </button>
+
+            <button 
+              onClick={handleBulkForward}
+              disabled={selectedMessageIds.length === 0}
+              className="p-2 hover:bg-bg-tertiary rounded-full text-text-muted hover:text-text-primary transition-colors disabled:opacity-30"
+              title="Encaminhar para Input"
+            >
+              <PlusSquare className="w-5 h-5" />
+            </button>
+
+            <button 
+              onClick={handleBulkExport}
+              disabled={selectedMessageIds.length === 0}
+              className="p-2 hover:bg-bg-tertiary rounded-full text-text-muted hover:text-text-primary transition-colors disabled:opacity-30"
+              title="Exportar como .txt"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+
+            <button 
+              onClick={handleDeleteSelected}
+              disabled={selectedMessageIds.length === 0}
+              className="p-2 hover:bg-bg-tertiary rounded-full text-text-muted hover:text-color-error transition-colors disabled:opacity-30"
+              title="Excluir Selecionadas"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+
+            <div className="w-px h-6 bg-border-primary mx-2" />
+
+            <button 
+              onClick={() => {
+                setIsMultiSelectMode(false);
+                setSelectedMessageIds([]);
+              }}
+              className="p-2 hover:bg-bg-tertiary rounded-full text-text-muted hover:text-text-primary transition-colors"
+              title="Cancelar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {selectedUserProfile && (
+        <UserProfileModal 
+          user={selectedUserProfile}
+          currentUser={currentUser}
+          isOpen={!!selectedUserProfile}
+          onClose={() => setSelectedUserProfile(null)}
+          onSendMessage={() => {
+            if (selectedUserProfile.uid !== currentUser.uid) {
+              createPrivateChannel(currentUser.uid, selectedUserProfile.uid).then(channel => {
+                // This is a bit tricky since we need to update the parent state
+                // but for now let's just close the modal
+                setSelectedUserProfile(null);
+              });
+            }
+          }}
+        />
+      )}
+
+      {showAddMembers && activeChannel && (
+        <AddMembersModal 
+          channel={activeChannel}
+          allUsers={allUsers}
+          isOpen={showAddMembers}
+          onClose={() => setShowAddMembers(false)}
+        />
+      )}
     </div>
   );
 };

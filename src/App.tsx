@@ -33,7 +33,8 @@ import {
   setupRecaptcha,
   requestPhoneCode,
   verifyPhoneCode,
-  clearRecaptcha
+  clearRecaptcha,
+  updateChannel
 } from './services/firebaseService';
 import { Loader2 } from 'lucide-react';
 import { ConfirmationResult } from 'firebase/auth';
@@ -149,9 +150,11 @@ export default function App() {
   useEffect(() => {
     if (currentUser && view === 'chat') {
       const unsubscribe = getChannels((fetchedChannels) => {
-        // Filter channels: show public ones OR private ones where user is a member
+        // Filter channels: show public ones, categories, OR private ones where user is a member
         const filtered = fetchedChannels.filter(c => 
-          c.type === 'public' || (c.members && c.members.includes(currentUser.uid))
+          c.type === 'public' || 
+          c.type === 'category' || 
+          (c.members && c.members.includes(currentUser.uid))
         );
         
         setChannels(filtered);
@@ -169,6 +172,16 @@ export default function App() {
       return () => unsubscribe();
     }
   }, [currentUser, view, activeChannel]);
+
+  // Update activeChannel if it changes in the channels list
+  useEffect(() => {
+    if (activeChannel && channels.length > 0) {
+      const updatedChannel = channels.find(c => c.id === activeChannel.id);
+      if (updatedChannel && JSON.stringify(updatedChannel) !== JSON.stringify(activeChannel)) {
+        setActiveChannel(updatedChannel);
+      }
+    }
+  }, [channels, activeChannel]);
 
   // Messages Listener
   useEffect(() => {
@@ -236,6 +249,8 @@ export default function App() {
             }
           }
         });
+      }, (error) => {
+        console.error(`Error listening to messages in channel ${channel.id}:`, error);
       });
     });
 
@@ -501,6 +516,33 @@ export default function App() {
     }
   };
 
+  const handleClearUnreads = (channelIds: string[]) => {
+    setUnreadChannels(prev => {
+      const next = new Set(prev);
+      channelIds.forEach(id => next.delete(id));
+      return next;
+    });
+  };
+
+  const handleMuteChannels = async (channelIds: string[], mute: boolean) => {
+    if (!currentUser) return;
+    try {
+      for (const id of channelIds) {
+        const channel = channels.find(c => c.id === id);
+        if (channel) {
+          const mutedBy = channel.mutedBy || [];
+          const newMutedBy = mute 
+            ? [...new Set([...mutedBy, currentUser.uid])]
+            : mutedBy.filter(uid => uid !== currentUser.uid);
+          
+          await updateChannel(id, { mutedBy: newMutedBy });
+        }
+      }
+    } catch (error) {
+      console.error("Error muting channels:", error);
+    }
+  };
+
   // Anonymous session timer
   useEffect(() => {
     if (currentUser?.isAnonymous && currentUser.expiresAt) {
@@ -519,62 +561,85 @@ export default function App() {
   }, [currentUser]);
 
   // Dynamic Styles
-  const customStyles = React.useMemo(() => {
-    if (!currentUser) return {};
+  const { customStyles, backgroundStyles, currentBg } = React.useMemo(() => {
+    if (!currentUser) return { customStyles: {}, backgroundStyles: {}, currentBg: null };
     
-    const styles: any = {};
+    const uiStyles: any = {};
+    const bgStyles: any = {};
     
     if (currentUser.primaryColor) {
-      styles['--brand'] = currentUser.primaryColor;
-      styles['--brand-hover'] = currentUser.primaryColor + 'dd';
+      uiStyles['--brand'] = currentUser.primaryColor;
+      uiStyles['--brand-hover'] = currentUser.primaryColor + 'dd';
     }
 
     if (currentUser.accentColor) {
-      styles['--accent'] = currentUser.accentColor;
+      uiStyles['--accent'] = currentUser.accentColor;
     }
     
-    if (currentUser.background) {
+    const activeBg = currentUser.background;
+
+    if (activeBg) {
       const isDark = theme === 'dark';
-      const hasMediaBg = currentUser.background.type === 'video' || currentUser.background.type === 'gif';
-      const isGradientOrPattern = currentUser.background.type === 'gradient' || currentUser.background.type === 'pattern';
+      const hasMediaBg = activeBg.type === 'video' || activeBg.type === 'gif' || activeBg.type === 'image';
+      const isGradientOrPattern = activeBg.type === 'gradient' || activeBg.type === 'pattern';
       
-      if (currentUser.background.type === 'color') {
-        styles['backgroundColor'] = currentUser.background.value;
-      } else if (currentUser.background.type === 'gradient') {
-        styles['background'] = currentUser.background.value;
-      } else if (currentUser.background.type === 'pattern') {
+      if (activeBg.type === 'color') {
+        bgStyles['backgroundColor'] = activeBg.value;
+      } else if (activeBg.type === 'gradient') {
+        bgStyles['background'] = activeBg.value;
+      } else if (activeBg.type === 'pattern') {
         // Simple CSS patterns
         const patterns: Record<string, string> = {
           'dots': 'radial-gradient(circle, currentColor 1px, transparent 1px)',
           'lines': 'linear-gradient(45deg, currentColor 1px, transparent 1px)',
           'grid': 'linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)'
         };
-        const patternBase = patterns[currentUser.background.patternId || 'dots'];
-        styles['backgroundImage'] = patternBase;
-        styles['backgroundSize'] = '20px 20px';
-        styles['color'] = isDark ? '#ffffff11' : '#00000011'; // Pattern color
+        const patternBase = patterns[activeBg.patternId || 'dots'];
+        bgStyles['backgroundImage'] = patternBase;
+        bgStyles['backgroundSize'] = '20px 20px';
+        bgStyles['color'] = activeBg.patternColor || (isDark ? '#ffffff11' : '#00000011'); // Pattern color
+        bgStyles['backgroundColor'] = isDark ? '#313338' : '#ffffff'; // Base color for pattern
       }
 
       // If there's a custom background, make the UI elements semi-transparent
-      const baseAlpha = hasMediaBg || currentUser.background.type === 'color' || isGradientOrPattern ? 'cc' : ''; // 80% opacity
+      const baseAlpha = hasMediaBg || activeBg.type === 'color' || isGradientOrPattern ? 'cc' : ''; // 80% opacity
       
       if (baseAlpha) {
         if (isDark) {
-          styles['--bg-primary'] = '#313338' + baseAlpha;
-          styles['--bg-secondary'] = '#2b2d31' + baseAlpha;
-          styles['--bg-tertiary'] = '#1e1f22' + baseAlpha;
-          styles['--bg-overlay'] = '#111214' + baseAlpha;
+          uiStyles['--bg-primary'] = '#313338' + baseAlpha;
+          uiStyles['--bg-secondary'] = '#2b2d31' + baseAlpha;
+          uiStyles['--bg-tertiary'] = '#1e1f22' + baseAlpha;
+          uiStyles['--bg-overlay'] = '#111214' + baseAlpha;
         } else {
-          styles['--bg-primary'] = '#ffffff' + baseAlpha;
-          styles['--bg-secondary'] = '#f2f3f5' + baseAlpha;
-          styles['--bg-tertiary'] = '#e3e5e8' + baseAlpha;
-          styles['--bg-overlay'] = '#ebedef' + baseAlpha;
+          uiStyles['--bg-primary'] = '#ffffff' + baseAlpha;
+          uiStyles['--bg-secondary'] = '#f2f3f5' + baseAlpha;
+          uiStyles['--bg-tertiary'] = '#e3e5e8' + baseAlpha;
+          uiStyles['--bg-overlay'] = '#ebedef' + baseAlpha;
         }
+      }
+
+      // Apply brightness and contrast to the background layer
+      const filters = [];
+      if (activeBg.brightness !== undefined) {
+        filters.push(`brightness(${activeBg.brightness}%)`);
+      }
+      if (activeBg.contrast !== undefined) {
+        filters.push(`contrast(${activeBg.contrast}%)`);
+      }
+      if (filters.length > 0) {
+        bgStyles['filter'] = filters.join(' ');
+      }
+      
+      // Apply opacity to the background layer
+      if (activeBg.opacity !== undefined) {
+        bgStyles['opacity'] = activeBg.opacity / 100;
+      } else {
+        bgStyles['opacity'] = 0.3; // Default opacity
       }
     }
     
-    return styles;
-  }, [currentUser]);
+    return { customStyles: uiStyles, backgroundStyles: bgStyles, currentBg: activeBg };
+  }, [currentUser, theme]);
 
   const themeClass = theme === 'light' ? 'light' : '';
 
@@ -588,31 +653,34 @@ export default function App() {
 
   return (
     <div style={customStyles} className={`min-h-screen ${themeClass} transition-colors duration-300`}>
-      {currentUser?.background?.type === 'video' || currentUser?.background?.type === 'gif' ? (
-        <div className="fixed inset-0 z-[-1] overflow-hidden pointer-events-none">
-          {currentUser.background.type === 'video' ? (
-            <video 
-              key={currentUser.background.value}
-              autoPlay 
-              muted 
-              loop 
-              playsInline 
-              className="w-full h-full object-cover"
-              style={{ opacity: (currentUser.background.opacity ?? 30) / 100 }}
-            >
-              <source src={currentUser.background.value} />
-            </video>
-          ) : (
-            <img 
-              src={currentUser.background.value} 
-              alt="background" 
-              className="w-full h-full object-cover"
-              style={{ opacity: (currentUser.background.opacity ?? 30) / 100 }}
-              referrerPolicy="no-referrer"
-            />
+      {currentBg?.type && (
+        <div 
+          className="fixed inset-0 z-[-1] overflow-hidden pointer-events-none"
+          style={backgroundStyles}
+        >
+          {['video', 'gif', 'image'].includes(currentBg.type) && currentBg.value?.trim() && (
+            currentBg.type === 'video' ? (
+              <video 
+                key={currentBg.value}
+                autoPlay 
+                muted 
+                loop 
+                playsInline 
+                className="w-full h-full object-cover"
+              >
+                <source src={currentBg.value} />
+              </video>
+            ) : (
+              <img 
+                src={currentBg.value} 
+                alt="background" 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
+            )
           )}
         </div>
-      ) : null}
+      )}
       {view === 'login' && (
         <Login 
           onLogin={handleLogin}
@@ -666,6 +734,8 @@ export default function App() {
           activeCall={activeCall}
           onStartCall={handleStartCall}
           onEndCall={handleEndCall}
+          onClearUnreads={handleClearUnreads}
+          onMuteChannels={handleMuteChannels}
         />
       )}
       

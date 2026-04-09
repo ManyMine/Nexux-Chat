@@ -1,5 +1,5 @@
 import React from 'react';
-import { Hash, Bell, Pin, Users, Search, HelpCircle, Settings, Menu, Phone, Video, AtSign } from 'lucide-react';
+import { Hash, Bell, Pin, Users, Search, HelpCircle, Settings, Menu, Phone, Video, AtSign, UserPlus, Lock, CheckSquare } from 'lucide-react';
 import { Channel, UserProfile } from '@/src/types';
 import { cn } from '@/src/lib/utils';
 
@@ -8,11 +8,14 @@ interface ChannelHeaderProps {
   otherUser?: UserProfile | null;
   onShowUsers: () => void;
   onShowSettings: () => void;
+  onAddMembers: () => void;
   showUsers: boolean;
   onToggleSidebar?: () => void;
   onStartCall: (video: boolean) => void;
   onSearch: (query: string) => void;
   onShowPinned: () => void;
+  onToggleMultiSelect: () => void;
+  isMultiSelectMode: boolean;
 }
 
 export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
@@ -20,14 +23,17 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
   otherUser,
   onShowUsers,
   onShowSettings,
+  onAddMembers,
   showUsers,
   onToggleSidebar,
   onStartCall,
   onSearch,
-  onShowPinned
+  onShowPinned,
+  onToggleMultiSelect,
+  isMultiSelectMode
 }) => {
   return (
-    <div className="h-12 px-4 flex items-center justify-between border-b border-border-primary/50 shadow-sm bg-bg-primary z-10">
+    <div className="h-12 px-4 flex items-center justify-between border-b border-border-primary/50 shadow-sm bg-transparent z-10">
       <div className="flex items-center space-x-2 flex-1 min-w-0">
         {onToggleSidebar && (
           <button 
@@ -48,6 +54,8 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
               )} />
             )}
           </div>
+        ) : channel.type === 'private_group' ? (
+          <Lock className="w-6 h-6 text-color-brand flex-shrink-0" />
         ) : (
           <Hash className="w-6 h-6 text-text-muted flex-shrink-0" />
         )}
@@ -87,6 +95,25 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
         >
           <Pin className="w-5 h-5" />
         </button>
+        <button 
+          onClick={onToggleMultiSelect}
+          className={cn(
+            "hover:text-text-primary transition-colors",
+            isMultiSelectMode ? "text-color-brand" : ""
+          )}
+          title="Multi-seleção"
+        >
+          <CheckSquare className="w-5 h-5" />
+        </button>
+        {channel.type === 'private_group' && (
+          <button 
+            onClick={onAddMembers}
+            className="hover:text-text-primary transition-colors"
+            title="Adicionar Membros"
+          >
+            <UserPlus className="w-5 h-5" />
+          </button>
+        )}
         <div className="w-px h-6 bg-border-primary mx-1" />
         <button className="hover:text-text-primary transition-colors hidden sm:block"><Bell className="w-5 h-5" /></button>
         <button 

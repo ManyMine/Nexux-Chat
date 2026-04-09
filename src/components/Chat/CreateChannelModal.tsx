@@ -9,7 +9,7 @@ import { Channel } from '@/src/types';
 
 const channelSchema = z.object({
   name: z.string().min(1, 'O nome é obrigatório').max(50, 'O nome é muito longo'),
-  type: z.enum(['public', 'private', 'category']),
+  type: z.enum(['public', 'private', 'category', 'private_group']),
   parentId: z.string().optional()
 });
 
@@ -111,6 +111,22 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
                       {...register('type')} 
                       type="radio" 
                       value="private" 
+                      className="w-5 h-5 accent-[#5865f2] cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-3 bg-bg-secondary rounded-md cursor-pointer hover:bg-bg-tertiary transition-colors border border-transparent hover:border-[#5865f2]/30">
+                    <div className="flex items-center space-x-3">
+                      <Lock className="w-6 h-6 text-color-brand" />
+                      <div>
+                        <p className="text-text-primary font-medium text-sm">Canal Privado 2</p>
+                        <p className="text-text-muted text-xs">Grupo privado com membros selecionados.</p>
+                      </div>
+                    </div>
+                    <input 
+                      {...register('type')} 
+                      type="radio" 
+                      value="private_group" 
                       className="w-5 h-5 accent-[#5865f2] cursor-pointer"
                     />
                   </label>

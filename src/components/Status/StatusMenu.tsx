@@ -265,7 +265,9 @@ const StatusViewer: React.FC<{ status: Status; allStatuses: Status[]; currentUse
   const [showStats, setShowStats] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
+  const [progress, setProgress] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const progressInterval = useRef<NodeJS.Timeout | null>(null);
 
   // Find all statuses from the same user to allow navigation
   const userStatuses = allStatuses.filter(s => s.userId === currentStatus.userId).sort((a, b) => {
@@ -274,8 +276,64 @@ const StatusViewer: React.FC<{ status: Status; allStatuses: Status[]; currentUse
   });
   const currentIndex = userStatuses.findIndex(s => s.id === currentStatus.id);
 
+  const handleNext = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (currentIndex < userStatuses.length - 1) {
+      setCurrentStatus(userStatuses[currentIndex + 1]);
+      setProgress(0);
+    } else {
+      onClose();
+    }
+  };
+
+  const handlePrev = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (currentIndex > 0) {
+      setCurrentStatus(userStatuses[currentIndex - 1]);
+      setProgress(0);
+    }
+  };
+
+  useEffect(() => {
+    if (progressInterval.current) clearInterval(progressInterval.current);
+    setProgress(0);
+
+    if (currentStatus.mediaType !== 'video') {
+      const duration = 5000; // 5 seconds for images/links/etc
+      const interval = 50;
+      const step = (interval / duration) * 100;
+
+      progressInterval.current = setInterval(() => {
+        if (isPlaying) {
+          setProgress(prev => {
+            if (prev >= 100) {
+              handleNext();
+              return 100;
+            }
+            return prev + step;
+          });
+        }
+      }, interval);
+    }
+
+    return () => {
+      if (progressInterval.current) clearInterval(progressInterval.current);
+    };
+  }, [currentStatus, isPlaying]);
+
+  const handleVideoTimeUpdate = () => {
+    if (videoRef.current) {
+      const current = videoRef.current.currentTime;
+      const total = videoRef.current.duration;
+      if (total > 0) {
+        setProgress((current / total) * 100);
+      }
+    }
+  };
+
   useEffect(() => {
     setCurrentStatus(initialStatus);
+    setProgress(0);
   }, [initialStatus]);
 
   useEffect(() => {
@@ -286,22 +344,6 @@ const StatusViewer: React.FC<{ status: Status; allStatuses: Status[]; currentUse
       viewStatus(currentStatus.id, currentUser.uid).catch(console.error);
     }
   }, [currentStatus, currentUser.uid]);
-
-  const handleNext = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    if (currentIndex < userStatuses.length - 1) {
-      setCurrentStatus(userStatuses[currentIndex + 1]);
-    } else {
-      onClose();
-    }
-  };
-
-  const handlePrev = (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    if (currentIndex > 0) {
-      setCurrentStatus(userStatuses[currentIndex - 1]);
-    }
-  };
 
   const handleLike = async () => {
     if (currentStatus.id.startsWith('temp-')) {
@@ -316,18 +358,32 @@ const StatusViewer: React.FC<{ status: Status; allStatuses: Status[]; currentUse
 
   const handleComment = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("handleComment triggered", { statusId: currentStatus.id, comment: comment });
     if (currentStatus.id.startsWith('temp-')) {
       // TODO: Show a toast message here
       console.log("Status ainda está sendo enviado...");
       return;
     }
-    if (!comment.trim()) return;
-    const newComment = await commentStatus(currentStatus.id, currentUser, comment);
-    setCurrentStatus(prev => ({
-      ...prev,
-      comments: [...prev.comments, newComment]
-    }));
-    setComment('');
+    if (!comment.trim()) {
+      console.log("Comment is empty");
+      return;
+    }
+    
+    // Ensure we are using the correct comment state
+    const commentText = comment;
+    console.log("Calling commentStatus", { statusId: currentStatus.id, commentText });
+    
+    try {
+      const newComment = await commentStatus(currentStatus.id, currentUser, commentText);
+      console.log("commentStatus success", newComment);
+      setCurrentStatus(prev => ({
+        ...prev,
+        comments: [...prev.comments, newComment]
+      }));
+      setComment('');
+    } catch (error) {
+      console.error("commentStatus failed", error);
+    }
   };
 
   const togglePlay = () => {
@@ -353,9 +409,10 @@ const StatusViewer: React.FC<{ status: Status; allStatuses: Status[]; currentUse
             <div key={s.id} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden">
               <div 
                 className={cn(
-                  "h-full bg-white transition-all duration-200",
-                  idx < currentIndex ? "w-full" : idx === currentIndex ? "w-full" : "w-0"
+                  "h-full bg-white transition-all duration-100 ease-linear",
+                  idx < currentIndex ? "w-full" : idx === currentIndex ? "w-0" : "w-0"
                 )} 
+                style={idx === currentIndex ? { width: `${progress}%` } : {}}
               />
             </div>
           ))}
@@ -404,11 +461,13 @@ const StatusViewer: React.FC<{ status: Status; allStatuses: Status[]; currentUse
                 ref={videoRef}
                 src={currentStatus.mediaUrl} 
                 autoPlay 
-                loop 
                 muted={isMuted}
                 playsInline
                 className="max-w-full max-h-full object-contain"
+                onTimeUpdate={handleVideoTimeUpdate}
                 onEnded={handleNext}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
               />
               {!isPlaying && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/20 pointer-events-none">
@@ -611,15 +670,22 @@ const StatusViewer: React.FC<{ status: Status; allStatuses: Status[]; currentUse
                 ) : (
                   currentStatus.comments.map(c => (
                     <div key={c.id} className="flex space-x-3">
-                      <div className="w-8 h-8 rounded-full bg-bg-tertiary flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-text-muted">
-                        {c.userName.slice(0, 2).toUpperCase()}
+                      <div className="w-8 h-8 rounded-full bg-bg-tertiary flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-text-muted overflow-hidden">
+                        {c.userPhoto ? (
+                          <img src={c.userPhoto} alt={c.userName} className="w-full h-full object-cover" />
+                        ) : (
+                          c.userName.slice(0, 2).toUpperCase()
+                        )}
                       </div>
                       <div className="flex-1 bg-bg-secondary p-3 rounded-2xl rounded-tl-none">
                         <p className="text-xs font-bold text-color-brand mb-1">{c.userName}</p>
                         <p className="text-sm text-text-primary whitespace-pre-wrap">{c.content}</p>
-                        <p className="text-[10px] text-text-muted mt-1">
-                          {new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
+                        <div className="flex items-center space-x-3 mt-1">
+                          <p className="text-[10px] text-text-muted">
+                            {new Date(c.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                          <button className="text-[10px] font-bold text-text-muted hover:text-text-primary">Responder</button>
+                        </div>
                       </div>
                     </div>
                   ))
@@ -918,6 +984,16 @@ const StatusUploadModal: React.FC<{ currentUser: UserProfile; onClose: () => voi
                   placeholder="O que está acontecendo?"
                   className="w-full bg-bg-tertiary border-none rounded-xl py-3 px-4 text-text-primary focus:ring-2 focus:ring-color-brand outline-none h-24"
                 />
+                <button 
+                  onClick={() => {
+                    const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(caption)}`;
+                    window.open(telegramUrl, '_blank');
+                  }}
+                  className="flex items-center space-x-2 text-blue-500 hover:text-blue-600 transition-colors"
+                >
+                  <Share2 className="w-5 h-5" />
+                  <span className="text-sm font-bold">Compartilhar no Telegram</span>
+                </button>
               </div>
             </div>
           )}

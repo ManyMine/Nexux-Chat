@@ -1,7 +1,9 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Trash2, Edit2, Loader2, Hash, Lock } from 'lucide-react';
+import { X, Trash2, Edit2, Loader2, Hash, Lock, PlusCircle, Upload } from 'lucide-react';
 import { Channel } from '@/src/types';
+import { uploadFile } from '@/src/services/firebaseService';
+import { cn } from '@/src/lib/utils';
 
 interface ChannelSettingsProps {
   channel: Channel;
@@ -24,9 +26,22 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
 }) => {
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [isUpdating, setIsUpdating] = React.useState(false);
+  const [isUploadingBackground, setIsUploadingBackground] = React.useState(false);
   const [name, setName] = React.useState(channel.name);
+  const [localBackground, setLocalBackground] = React.useState(channel.background);
 
   const canManage = isOwner || isAdmin;
+
+  const updateLocalBackground = (updates: any) => {
+    const newBackground = {
+      ...localBackground,
+      ...updates
+    };
+    if (newBackground.type !== 'pattern') {
+      delete newBackground.patternId;
+    }
+    setLocalBackground(newBackground);
+  };
 
   const handleDelete = async () => {
     if (window.confirm(`Tem certeza que deseja excluir o canal #${channel.name}? Esta ação não pode ser desfeita.`)) {
@@ -43,16 +58,26 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
   };
 
   const handleUpdate = async () => {
-    if (name.trim() && name !== channel.name) {
-      setIsUpdating(true);
-      try {
-        await onUpdate(channel.id, { name });
-        onClose();
-      } catch (error) {
-        console.error("Error updating channel:", error);
-      } finally {
-        setIsUpdating(false);
+    setIsUpdating(true);
+    try {
+      const updates: Partial<Channel> = {};
+      if (name.trim() && name !== channel.name) {
+        updates.name = name;
       }
+      
+      // Only update background if it has changed
+      if (JSON.stringify(localBackground) !== JSON.stringify(channel.background)) {
+        updates.background = localBackground === undefined ? null as any : localBackground;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await onUpdate(channel.id, updates);
+      }
+      onClose();
+    } catch (error) {
+      console.error("Error updating channel:", error);
+    } finally {
+      setIsUpdating(false);
     }
   };
 
@@ -111,9 +136,235 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
                 </div>
 
                 {canManage && (
+                  <div className="space-y-6 pt-4 border-t border-border-primary">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-text-muted uppercase">Fundo do Canal</label>
+                      <select 
+                        value={localBackground?.type || ''}
+                        onChange={(e) => {
+                          const type = e.target.value as any;
+                          if (!type) {
+                            setLocalBackground(undefined);
+                            return;
+                          }
+                          let defaultValue = '';
+                          if (type === 'color') defaultValue = '#313338';
+                          if (type === 'gradient') defaultValue = 'linear-gradient(135deg, #5865f2 0%, #eb459e 100%)';
+                          
+                          updateLocalBackground({ 
+                            type, 
+                            value: defaultValue,
+                            opacity: localBackground?.opacity ?? (type === 'color' || type === 'gradient' || type === 'pattern' ? 100 : 30),
+                            patternId: type === 'pattern' ? 'dots' : undefined
+                          });
+                        }}
+                        className="w-full bg-bg-tertiary text-text-primary p-2.5 rounded border-none outline-none focus:ring-2 focus:ring-[#5865f2]"
+                      >
+                        <option value="">Nenhum (Usar fundo do usuário)</option>
+                        <option value="color">Cor Sólida</option>
+                        <option value="gradient">Gradiente</option>
+                        <option value="pattern">Padrão (Pattern)</option>
+                        <option value="video">Vídeo (URL)</option>
+                        <option value="gif">GIF (URL)</option>
+                        <option value="image">Imagem (Upload)</option>
+                      </select>
+                    </div>
+
+                    {localBackground?.type === 'gradient' && (
+                      <div className="space-y-4 p-4 bg-bg-tertiary rounded">
+                        <label className="text-xs font-bold text-text-muted uppercase">Configurar Gradiente</label>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-text-muted uppercase">Cor Inicial</label>
+                            <input 
+                              type="color"
+                              defaultValue="#5865f2"
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const current = localBackground?.value || '';
+                                const endColor = current.match(/#[a-fA-F0-9]{6}/g)?.[1] || '#eb459e';
+                                updateLocalBackground({ value: `linear-gradient(135deg, ${val} 0%, ${endColor} 100%)` });
+                              }}
+                              className="w-full h-8 bg-transparent border-none cursor-pointer"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[10px] text-text-muted uppercase">Cor Final</label>
+                            <input 
+                              type="color"
+                              defaultValue="#eb459e"
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const current = localBackground?.value || '';
+                                const startColor = current.match(/#[a-fA-F0-9]{6}/g)?.[0] || '#5865f2';
+                                updateLocalBackground({ value: `linear-gradient(135deg, ${startColor} 0%, ${val} 100%)` });
+                              }}
+                              className="w-full h-8 bg-transparent border-none cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {localBackground?.type === 'pattern' && (
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted uppercase">Escolher Padrão</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {['dots', 'lines', 'grid'].map(p => (
+                            <button
+                              key={p}
+                              onClick={() => updateLocalBackground({ patternId: p })}
+                              className={cn(
+                                "p-2 rounded border text-xs capitalize transition-colors",
+                                localBackground?.patternId === p ? "bg-[#5865f2] text-white border-[#5865f2]" : "bg-bg-tertiary text-text-secondary border-transparent hover:border-text-muted"
+                              )}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {localBackground && (
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted uppercase">
+                          {localBackground?.type === 'color' ? 'Seletor de Cor' : 
+                           localBackground?.type === 'gradient' ? 'CSS do Gradiente' :
+                           localBackground?.type === 'pattern' ? 'Cor do Padrão' :
+                           localBackground?.type === 'image' ? 'Upload de Imagem' :
+                           'URL do Recurso'}
+                        </label>
+                        <div className="flex flex-col space-y-2">
+                          <div className="flex space-x-2">
+                            {localBackground?.type === 'color' ? (
+                              <input 
+                                type="color"
+                                value={localBackground?.value || '#313338'}
+                                onChange={(e) => updateLocalBackground({ type: 'color', value: e.target.value })}
+                                className="h-10 w-20 bg-transparent border-none cursor-pointer"
+                              />
+                            ) : localBackground?.type === 'gradient' ? (
+                              <input 
+                                type="text"
+                                value={localBackground?.value || ''}
+                                onChange={(e) => updateLocalBackground({ value: e.target.value })}
+                                className="flex-1 bg-bg-tertiary text-text-primary p-2.5 rounded border-none outline-none focus:ring-2 focus:ring-[#5865f2]"
+                              />
+                            ) : localBackground?.type === 'pattern' ? (
+                              <div className="flex items-center space-x-4">
+                                <input 
+                                  type="color"
+                                  value={localBackground?.patternColor || '#ffffff'}
+                                  onChange={(e) => updateLocalBackground({ patternColor: e.target.value })}
+                                  className="h-10 w-20 bg-transparent border-none cursor-pointer"
+                                />
+                                <span className="text-xs text-text-muted italic">Escolha a cor das linhas/pontos.</span>
+                              </div>
+                            ) : (
+                              <>
+                                <input 
+                                  type="text"
+                                  placeholder={localBackground?.type === 'image' ? "URL da imagem ou faça upload" : "https://exemplo.com/recurso.mp4 ou .gif"}
+                                  value={localBackground?.value || ''}
+                                  onChange={(e) => updateLocalBackground({ 
+                                    type: localBackground?.type || 'video', 
+                                    value: e.target.value 
+                                  })}
+                                  className="flex-1 bg-bg-tertiary text-text-primary p-2.5 rounded border-none outline-none focus:ring-2 focus:ring-[#5865f2]"
+                                />
+                                <button 
+                                  disabled={isUploadingBackground}
+                                  onClick={() => {
+                                    const input = document.createElement('input');
+                                    input.type = 'file';
+                                    input.accept = localBackground?.type === 'video' ? 'video/*' : 'image/*';
+                                    input.onchange = async (e: any) => {
+                                      const file = e.target.files?.[0];
+                                      if (file) {
+                                        setIsUploadingBackground(true);
+                                        try {
+                                          const url = await uploadFile(file, `backgrounds/channel_${channel.id}_${Date.now()}`);
+                                          updateLocalBackground({ 
+                                            type: localBackground?.type || 'video', 
+                                            value: url 
+                                          });
+                                        } catch (err) {
+                                          alert("Erro ao fazer upload do fundo.");
+                                        } finally {
+                                          setIsUploadingBackground(false);
+                                        }
+                                      }
+                                    };
+                                    input.click();
+                                  }}
+                                  className="bg-[#5865f2] text-white px-4 py-2 rounded hover:bg-[#4752c4] transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {isUploadingBackground ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+                                  <span>{isUploadingBackground ? 'Enviando...' : 'Upload'}</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {localBackground && (
+                      <div className="space-y-6">
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <label className="text-xs font-bold text-text-muted uppercase">Opacidade do Fundo</label>
+                            <span className="text-xs text-text-secondary">{localBackground.opacity ?? (localBackground.type === 'color' ? 100 : 30)}%</span>
+                          </div>
+                          <input 
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={localBackground.opacity ?? (localBackground.type === 'color' ? 100 : 30)}
+                            onChange={(e) => updateLocalBackground({ opacity: parseInt(e.target.value) })}
+                            className="w-full h-1.5 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <label className="text-xs font-bold text-text-muted uppercase">Brilho</label>
+                            <span className="text-xs text-text-secondary">{localBackground.brightness ?? 100}%</span>
+                          </div>
+                          <input 
+                            type="range"
+                            min="0"
+                            max="200"
+                            value={localBackground.brightness ?? 100}
+                            onChange={(e) => updateLocalBackground({ brightness: parseInt(e.target.value) })}
+                            className="w-full h-1.5 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <label className="text-xs font-bold text-text-muted uppercase">Contraste</label>
+                            <span className="text-xs text-text-secondary">{localBackground.contrast ?? 100}%</span>
+                          </div>
+                          <input 
+                            type="range"
+                            min="0"
+                            max="200"
+                            value={localBackground.contrast ?? 100}
+                            onChange={(e) => updateLocalBackground({ contrast: parseInt(e.target.value) })}
+                            className="w-full h-1.5 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {canManage && (
                   <div className="pt-4 space-y-4">
                     <button
-                      disabled={isUpdating || name === channel.name}
+                      disabled={isUpdating || (name === channel.name && JSON.stringify(localBackground) === JSON.stringify(channel.background))}
                       onClick={handleUpdate}
                       className="w-full bg-[#5865f2] hover:bg-[#4752c4] text-white font-bold py-3 rounded-md transition-colors flex items-center justify-center disabled:opacity-50"
                     >

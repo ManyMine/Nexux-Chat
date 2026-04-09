@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './Sidebar';
 import { ChatArea } from './ChatArea';
@@ -6,7 +6,11 @@ import { GeminiAssistant } from './GeminiAssistant';
 import { UserSearch } from './UserSearch';
 import { UserSettings } from './UserSettings';
 import { StatusMenu } from '../Status/StatusMenu';
-import { UserProfile, Channel, Message } from '@/src/types';
+import { ReportsModal } from './ReportsModal';
+import { UserProfile, Channel, Message, Report } from '@/src/types';
+import { db } from '@/src/firebase';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { REPORTS_COLLECTION } from '@/src/constants';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
@@ -28,6 +32,8 @@ interface ChatLayoutProps {
   activeCall: { id: string, type: 'voice' | 'video', channel: Channel } | null;
   onStartCall: (video: boolean) => void;
   onEndCall: () => void;
+  onClearUnreads: (channelIds: string[]) => void;
+  onMuteChannels: (channelIds: string[], mute: boolean) => void;
 }
 
 export const ChatLayout: React.FC<ChatLayoutProps> = ({
@@ -47,17 +53,39 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   onSelectUser,
   activeCall,
   onStartCall,
-  onEndCall
+  onEndCall,
+  onClearUnreads,
+  onMuteChannels
 }) => {
   const [showGemini, setShowGemini] = useState(false);
   const [isUserSearchOpen, setIsUserSearchOpen] = useState(false);
   const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
+  const [isReportsOpen, setIsReportsOpen] = useState(false);
+  const [pendingReportsCount, setPendingReportsCount] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>();
 
+  // Reports Listener for Admins
+  useEffect(() => {
+    if (currentUser.role === 'admin') {
+      const q = query(
+        collection(db, REPORTS_COLLECTION),
+        where('status', '==', 'pending')
+      );
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setPendingReportsCount(snapshot.size);
+      }, (error) => {
+        console.error("Error listening to reports:", error);
+      });
+      
+      return () => unsubscribe();
+    }
+  }, [currentUser.role]);
+
   return (
-    <div className="flex h-screen bg-bg-primary text-text-secondary overflow-hidden font-sans relative">
+    <div className="flex h-screen bg-transparent text-text-secondary overflow-hidden font-sans relative">
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -91,6 +119,10 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
           onOpenUserSearch={() => setIsUserSearchOpen(true)}
           onOpenUserSettings={() => setIsUserSettingsOpen(true)}
           onOpenStatus={() => { setSelectedUserId(undefined); setShowStatus(true); }}
+          onOpenReports={() => setIsReportsOpen(true)}
+          pendingReportsCount={pendingReportsCount}
+          onClearUnreads={onClearUnreads}
+          onMuteChannels={onMuteChannels}
         />
       </div>
 
@@ -148,6 +180,11 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
         onClose={() => setIsUserSettingsOpen(false)}
         currentUser={currentUser}
         onLogout={onLogout}
+      />
+
+      <ReportsModal 
+        isOpen={isReportsOpen}
+        onClose={() => setIsReportsOpen(false)}
       />
 
       <AnimatePresence>

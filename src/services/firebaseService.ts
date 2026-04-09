@@ -29,9 +29,11 @@ import {
   serverTimestamp,
   Timestamp,
   arrayUnion,
+  arrayRemove,
   updateDoc,
   deleteDoc,
-  deleteField
+  deleteField,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   ref, 
@@ -40,7 +42,9 @@ import {
 } from 'firebase/storage';
 import { auth, db, storage } from '../firebase';
 import { UserProfile, Channel, Message, Call, Status, StatusComment } from '../types';
-import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, CALLS_COLLECTION, STATUSES_COLLECTION } from '../constants';
+import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, CALLS_COLLECTION, STATUSES_COLLECTION, REPORTS_COLLECTION } from '../constants';
+import { saveStatus } from './db';
+export { deleteField };
 
 export const uploadFile = async (file: File, path: string) => {
   const storageRef = ref(storage, path);
@@ -421,19 +425,44 @@ export const verifyPhoneCode = async (confirmationResult: ConfirmationResult, co
   }
 };
 
+export const deleteAccount = async (userId: string) => {
+  const user = auth.currentUser;
+  if (!user || user.uid !== userId) throw new Error("Ação não autorizada");
+  
+  try {
+    const { deleteUser } = await import('firebase/auth');
+    
+    // Delete user's statuses
+    const statusesQuery = query(collection(db, STATUSES_COLLECTION), where('userId', '==', userId));
+    const statusesSnapshot = await getDocs(statusesQuery);
+    const deletePromises = statusesSnapshot.docs.map(doc => deleteDoc(doc.ref));
+    await Promise.all(deletePromises);
+
+    // Delete from Firestore first
+    await deleteDoc(doc(db, USERS_COLLECTION, userId));
+    
+    // Then delete from Auth
+    await deleteUser(user);
+  } catch (error: any) {
+    if (error.code === 'auth/requires-recent-login') {
+      throw new Error('Esta operação requer um login recente. Por favor, saia e entre novamente.');
+    }
+    throw error;
+  }
+};
+
 export const logOut = async () => {
   const user = auth.currentUser;
   if (user) {
     try {
-      const userDoc = await getDoc(doc(db, USERS_COLLECTION, user.uid));
-      const userData = userDoc.data() as UserProfile | undefined;
-      
-      if (userData?.isAnonymous) {
+      // If it's an anonymous user, delete the account entirely
+      if (user.isAnonymous) {
         await deleteAccount(user.uid);
-        return; // deleteAccount handles the auth deletion
-      } else {
-        await updateDoc(doc(db, USERS_COLLECTION, user.uid), { status: 'offline' });
+        return; // deleteAccount handles the auth deletion and firestore cleanup
       }
+      
+      // For regular users, just set status to offline
+      await updateDoc(doc(db, USERS_COLLECTION, user.uid), { status: 'offline' });
     } catch (e) {
       console.error("Failed to handle logout", e);
     }
@@ -552,32 +581,6 @@ export const deactivateAccount = async (userId: string) => {
   }
 };
 
-export const deleteAccount = async (userId: string) => {
-  const user = auth.currentUser;
-  if (!user || user.uid !== userId) throw new Error("Ação não autorizada");
-  
-  try {
-    const { deleteUser } = await import('firebase/auth');
-    
-    // Delete user's statuses
-    const statusesQuery = query(collection(db, STATUSES_COLLECTION), where('userId', '==', userId));
-    const statusesSnapshot = await getDocs(statusesQuery);
-    const deletePromises = statusesSnapshot.docs.map(doc => deleteDoc(doc.ref));
-    await Promise.all(deletePromises);
-
-    // Delete from Firestore first
-    await deleteDoc(doc(db, USERS_COLLECTION, userId));
-    
-    // Then delete from Auth
-    await deleteUser(user);
-  } catch (error: any) {
-    if (error.code === 'auth/requires-recent-login') {
-      throw new Error('Esta operação requer um login recente. Por favor, saia e entre novamente.');
-    }
-    throw error;
-  }
-};
-
 export const adminDeleteUser = async (userId: string) => {
   try {
     await deleteDoc(doc(db, USERS_COLLECTION, userId));
@@ -611,7 +614,8 @@ export const createPrivateChannel = async (user1Id: string, user2Id: string) => 
     type: 'private',
     createdBy: user1Id,
     createdAt: Date.now(),
-    members: [user1Id, user2Id]
+    members: [user1Id, user2Id],
+    order: 999
   };
   
   try {
@@ -623,13 +627,14 @@ export const createPrivateChannel = async (user1Id: string, user2Id: string) => 
   }
 };
 
-export const createChannel = async (name: string, type: 'public' | 'private' | 'category', creatorId: string, parentId?: string) => {
+export const createChannel = async (name: string, type: 'public' | 'private' | 'category' | 'private_group', creatorId: string, parentId?: string) => {
   const channelData: Omit<Channel, 'id'> = {
     name,
     type,
     createdBy: creatorId,
     createdAt: Date.now(),
-    members: [creatorId]
+    members: [creatorId],
+    order: 999
   };
   
   if (parentId) {
@@ -654,11 +659,48 @@ export const updateChannel = async (channelId: string, data: Partial<Channel>) =
   }
 };
 
+export const updateChannelsOrder = async (channels: { id: string, order: number }[]) => {
+  try {
+    const batch = writeBatch(db);
+    channels.forEach(({ id, order }) => {
+      batch.update(doc(db, CHANNELS_COLLECTION, id), { order });
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, CHANNELS_COLLECTION);
+    throw error;
+  }
+};
+
 export const deleteChannel = async (channelId: string) => {
   try {
     await deleteDoc(doc(db, CHANNELS_COLLECTION, channelId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${CHANNELS_COLLECTION}/${channelId}`);
+    throw error;
+  }
+};
+
+export const addChannelMember = async (channelId: string, userId: string) => {
+  try {
+    const channelRef = doc(db, CHANNELS_COLLECTION, channelId);
+    await updateDoc(channelRef, {
+      members: arrayUnion(userId)
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CHANNELS_COLLECTION}/${channelId}`);
+    throw error;
+  }
+};
+
+export const removeChannelMember = async (channelId: string, userId: string) => {
+  try {
+    const channelRef = doc(db, CHANNELS_COLLECTION, channelId);
+    await updateDoc(channelRef, {
+      members: arrayRemove(userId)
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CHANNELS_COLLECTION}/${channelId}`);
     throw error;
   }
 };
@@ -785,6 +827,12 @@ export const createStatus = async (user: UserProfile, mediaUrl: string, mediaTyp
     comments: []
   };
 
+  if (!navigator.onLine) {
+    const tempStatus = { id: 'temp-' + Date.now(), ...statusData };
+    await saveStatus(tempStatus);
+    return tempStatus as Status;
+  }
+
   try {
     const docRef = await addDoc(collection(db, STATUSES_COLLECTION), statusData);
     return { id: docRef.id, ...statusData } as Status;
@@ -841,6 +889,7 @@ export const commentStatus = async (statusId: string, user: UserProfile, content
     id: Math.random().toString(36).substring(2, 9),
     userId: user.uid,
     userName: user.displayName,
+    userPhoto: user.photoURL || undefined,
     content,
     timestamp: Date.now()
   };
@@ -959,6 +1008,41 @@ export const verifySecurityAnswer = async (email: string, answer: string) => {
   const user = await getUserByEmail(email);
   if (!user) return false;
   return user.securityAnswer?.toLowerCase() === answer.toLowerCase();
+};
+
+export const reportUser = async (reporterId: string, reportedId: string, reason: string) => {
+  try {
+    await addDoc(collection(db, REPORTS_COLLECTION), {
+      reporterId,
+      reportedId,
+      reason,
+      timestamp: Date.now(),
+      status: 'pending'
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, REPORTS_COLLECTION);
+    throw error;
+  }
+};
+
+export const getReports = async () => {
+  try {
+    const q = query(collection(db, REPORTS_COLLECTION), orderBy('timestamp', 'desc'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, REPORTS_COLLECTION);
+    throw error;
+  }
+};
+
+export const updateReportStatus = async (reportId: string, status: 'pending' | 'resolved' | 'dismissed') => {
+  try {
+    await updateDoc(doc(db, REPORTS_COLLECTION, reportId), { status });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, REPORTS_COLLECTION);
+    throw error;
+  }
 };
 
 export const listenForIncomingCalls = (userId: string, callback: (call: Call) => void) => {

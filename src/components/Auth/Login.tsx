@@ -7,6 +7,7 @@ import { motion } from 'motion/react';
 import { Mail, Lock, Loader2, Globe } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { setupRecaptcha, clearRecaptcha } from '@/src/services/firebaseService';
+import { InstallPWA } from '../InstallPWA';
 import { useI18n, Language } from '@/src/lib/i18n';
 
 const loginSchema = z.object({
@@ -290,6 +291,7 @@ export const Login: React.FC<LoginProps> = ({
             Registre-se
           </button>
         </p>
+        <InstallPWA />
       </form>
     </AuthLayout>
   );

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, User, Shield, Palette, Bell, LogOut, ShieldAlert, Camera, Loader2, Check, AlertCircle, PlusCircle, Sun, Moon } from 'lucide-react';
 import { UserProfile } from '@/src/types';
@@ -43,9 +43,23 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('account');
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isUploadingBackground, setIsUploadingBackground] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
+  const [localBackground, setLocalBackground] = useState(currentUser.background);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const updateLocalBackground = (updates: any) => {
+    const newBackground = {
+      ...localBackground,
+      ...updates
+    };
+    if (newBackground.type !== 'pattern') {
+      delete newBackground.patternId;
+    }
+    setLocalBackground(newBackground);
+  };
 
   const { register: registerAccount, handleSubmit: handleSubmitAccount, formState: { errors: accountErrors } } = useForm({
     resolver: zodResolver(accountSchema),
@@ -108,6 +122,20 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
       setUpdateSuccess('Perfil atualizado com sucesso!');
     } catch (error: any) {
       setUpdateError(error.message || 'Erro ao atualizar perfil');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const saveBackground = async () => {
+    setIsUpdating(true);
+    setUpdateError(null);
+    setUpdateSuccess(null);
+    try {
+      await updateUserProfile(currentUser.uid, { background: localBackground });
+      setUpdateSuccess('Fundo atualizado!');
+    } catch (error: any) {
+      setUpdateError(error.message || 'Erro ao atualizar fundo');
     } finally {
       setIsUpdating(false);
     }
@@ -648,25 +676,30 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
 
                     <div className="space-y-4">
                       <p className="text-text-primary font-medium">Fundo Personalizado</p>
+                      <button 
+                        onClick={saveBackground}
+                        disabled={isUpdating}
+                        className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-6 py-2 rounded font-medium transition-colors flex items-center space-x-2 disabled:opacity-50"
+                      >
+                        {isUpdating && <Loader2 className="w-4 h-4 animate-spin" />}
+                        <span>Salvar Fundo</span>
+                      </button>
                       <div className="grid grid-cols-1 gap-6">
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-text-muted uppercase">Tipo de Fundo</label>
                           <select 
-                            value={currentUser.background?.type || 'color'}
+                            value={localBackground?.type || 'color'}
                             onChange={(e) => {
                               const type = e.target.value as any;
                               let defaultValue = '';
                               if (type === 'color') defaultValue = '#313338';
                               if (type === 'gradient') defaultValue = 'linear-gradient(135deg, #5865f2 0%, #eb459e 100%)';
                               
-                              updateUserProfile(currentUser.uid, { 
-                                background: { 
-                                  ...currentUser.background,
-                                  type, 
-                                  value: defaultValue,
-                                  opacity: currentUser.background?.opacity ?? (type === 'color' || type === 'gradient' || type === 'pattern' ? 100 : 30),
-                                  patternId: type === 'pattern' ? 'dots' : undefined
-                                } 
+                              updateLocalBackground({ 
+                                type, 
+                                value: defaultValue,
+                                opacity: localBackground?.opacity ?? (type === 'color' || type === 'gradient' || type === 'pattern' ? 100 : 30),
+                                patternId: type === 'pattern' ? 'dots' : undefined
                               });
                             }}
                             className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2]"
@@ -676,10 +709,11 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                             <option value="pattern">Padrão (Pattern)</option>
                             <option value="video">Vídeo (URL)</option>
                             <option value="gif">GIF (URL)</option>
+                            <option value="image">Imagem (Upload)</option>
                           </select>
                         </div>
 
-                        {currentUser.background?.type === 'gradient' && (
+                        {localBackground?.type === 'gradient' && (
                           <div className="space-y-4 p-4 bg-bg-primary rounded border border-border-primary">
                             <label className="text-xs font-bold text-text-muted uppercase">Configurar Gradiente</label>
                             <div className="grid grid-cols-2 gap-4">
@@ -690,11 +724,9 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                                   defaultValue="#5865f2"
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    const current = currentUser.background?.value || '';
+                                    const current = localBackground?.value || '';
                                     const endColor = current.match(/#[a-fA-F0-9]{6}/g)?.[1] || '#eb459e';
-                                    updateUserProfile(currentUser.uid, { 
-                                      background: { ...currentUser.background!, value: `linear-gradient(135deg, ${val} 0%, ${endColor} 100%)` } 
-                                    });
+                                    updateLocalBackground({ value: `linear-gradient(135deg, ${val} 0%, ${endColor} 100%)` });
                                   }}
                                   className="w-full h-8 bg-transparent border-none cursor-pointer"
                                 />
@@ -706,11 +738,9 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                                   defaultValue="#eb459e"
                                   onChange={(e) => {
                                     const val = e.target.value;
-                                    const current = currentUser.background?.value || '';
+                                    const current = localBackground?.value || '';
                                     const startColor = current.match(/#[a-fA-F0-9]{6}/g)?.[0] || '#5865f2';
-                                    updateUserProfile(currentUser.uid, { 
-                                      background: { ...currentUser.background!, value: `linear-gradient(135deg, ${startColor} 0%, ${val} 100%)` } 
-                                    });
+                                    updateLocalBackground({ value: `linear-gradient(135deg, ${startColor} 0%, ${val} 100%)` });
                                   }}
                                   className="w-full h-8 bg-transparent border-none cursor-pointer"
                                 />
@@ -719,19 +749,17 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           </div>
                         )}
 
-                        {currentUser.background?.type === 'pattern' && (
+                        {localBackground?.type === 'pattern' && (
                           <div className="space-y-2">
                             <label className="text-xs font-bold text-text-muted uppercase">Escolher Padrão</label>
                             <div className="grid grid-cols-3 gap-2">
                               {['dots', 'lines', 'grid'].map(p => (
                                 <button
                                   key={p}
-                                  onClick={() => updateUserProfile(currentUser.uid, { 
-                                    background: { ...currentUser.background!, patternId: p } 
-                                  })}
+                                  onClick={() => updateLocalBackground({ patternId: p })}
                                   className={cn(
                                     "p-2 rounded border text-xs capitalize transition-colors",
-                                    currentUser.background?.patternId === p ? "bg-[#5865f2] text-white border-[#5865f2]" : "bg-bg-primary text-text-secondary border-border-primary hover:border-text-muted"
+                                    localBackground?.patternId === p ? "bg-[#5865f2] text-white border-[#5865f2]" : "bg-bg-primary text-text-secondary border-border-primary hover:border-text-muted"
                                   )}
                                 >
                                   {p}
@@ -743,76 +771,79 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
 
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-text-muted uppercase">
-                            {currentUser.background?.type === 'color' ? 'Seletor de Cor' : 
-                             currentUser.background?.type === 'gradient' ? 'CSS do Gradiente' :
-                             currentUser.background?.type === 'pattern' ? 'Cor do Padrão (Automático)' :
+                            {localBackground?.type === 'color' ? 'Seletor de Cor' : 
+                             localBackground?.type === 'gradient' ? 'CSS do Gradiente' :
+                             localBackground?.type === 'pattern' ? 'Cor do Padrão' :
+                             localBackground?.type === 'image' ? 'Upload de Imagem' :
                              'URL do Recurso'}
                           </label>
                           <div className="flex flex-col space-y-2">
                             <div className="flex space-x-2">
-                              {currentUser.background?.type === 'color' ? (
+                              {localBackground?.type === 'color' ? (
                                 <input 
                                   type="color"
-                                  value={currentUser.background?.value || '#313338'}
-                                  onChange={(e) => updateUserProfile(currentUser.uid, { 
-                                    background: { ...currentUser.background, type: 'color', value: e.target.value } 
-                                  })}
+                                  value={localBackground?.value || '#313338'}
+                                  onChange={(e) => updateLocalBackground({ type: 'color', value: e.target.value })}
                                   className="h-10 w-20 bg-transparent border-none cursor-pointer"
                                 />
-                              ) : currentUser.background?.type === 'gradient' ? (
+                              ) : localBackground?.type === 'gradient' ? (
                                 <input 
                                   type="text"
-                                  value={currentUser.background?.value || ''}
-                                  onChange={(e) => updateUserProfile(currentUser.uid, { 
-                                    background: { ...currentUser.background!, value: e.target.value } 
-                                  })}
+                                  value={localBackground?.value || ''}
+                                  onChange={(e) => updateLocalBackground({ value: e.target.value })}
                                   className="flex-1 bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2]"
                                 />
-                              ) : currentUser.background?.type === 'pattern' ? (
-                                <div className="p-2.5 text-xs text-text-muted italic">A cor do padrão se ajusta ao tema (Claro/Escuro).</div>
+                              ) : localBackground?.type === 'pattern' ? (
+                                <div className="flex items-center space-x-4">
+                                  <input 
+                                    type="color"
+                                    value={localBackground?.patternColor || '#ffffff'}
+                                    onChange={(e) => updateLocalBackground({ patternColor: e.target.value })}
+                                    className="h-10 w-20 bg-transparent border-none cursor-pointer"
+                                  />
+                                  <span className="text-xs text-text-muted italic">Escolha a cor das linhas/pontos.</span>
+                                </div>
                               ) : (
                                 <>
                                   <input 
                                     type="text"
-                                    placeholder="https://exemplo.com/recurso.mp4 ou .gif"
-                                    value={currentUser.background?.value || ''}
-                                    onChange={(e) => updateUserProfile(currentUser.uid, { 
-                                      background: { 
-                                        ...currentUser.background,
-                                        type: currentUser.background?.type || 'video', 
-                                        value: e.target.value 
-                                      } 
+                                    placeholder={localBackground?.type === 'image' ? "URL da imagem ou faça upload" : "https://exemplo.com/recurso.mp4 ou .gif"}
+                                    value={localBackground?.value || ''}
+                                    onChange={(e) => updateLocalBackground({ 
+                                      type: localBackground?.type || 'video', 
+                                      value: e.target.value 
                                     })}
                                     className="flex-1 bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2]"
                                   />
                                   <button 
+                                    disabled={isUploadingBackground}
                                     onClick={() => {
                                       const input = document.createElement('input');
                                       input.type = 'file';
-                                      input.accept = currentUser.background?.type === 'video' ? 'video/*' : 'image/gif';
+                                      input.accept = localBackground?.type === 'video' ? 'video/*' : 'image/*';
                                       input.onchange = async (e: any) => {
                                         const file = e.target.files?.[0];
                                         if (file) {
+                                          setIsUploadingBackground(true);
                                           try {
                                             const url = await uploadFile(file, `backgrounds/${currentUser.uid}_${Date.now()}`);
-                                            updateUserProfile(currentUser.uid, { 
-                                              background: { 
-                                                ...currentUser.background,
-                                                type: currentUser.background?.type || 'video', 
-                                                value: url 
-                                              } 
+                                            updateLocalBackground({ 
+                                              type: localBackground?.type || 'video', 
+                                              value: url 
                                             });
                                           } catch (err) {
                                             alert("Erro ao fazer upload do fundo.");
+                                          } finally {
+                                            setIsUploadingBackground(false);
                                           }
                                         }
                                       };
                                       input.click();
                                     }}
-                                    className="bg-[#5865f2] text-white px-4 py-2 rounded hover:bg-[#4752c4] transition-colors flex items-center space-x-2"
+                                    className="bg-[#5865f2] text-white px-4 py-2 rounded hover:bg-[#4752c4] transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
-                                    <PlusCircle className="w-4 h-4" />
-                                    <span>Upload</span>
+                                    {isUploadingBackground ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+                                    <span>{isUploadingBackground ? 'Enviando...' : 'Upload'}</span>
                                   </button>
                                 </>
                               )}
@@ -820,28 +851,55 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           </div>
                         </div>
 
-                        {currentUser.background && (
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                              <label className="text-xs font-bold text-text-muted uppercase">Opacidade do Fundo</label>
-                              <span className="text-xs text-text-secondary">{currentUser.background.opacity ?? (currentUser.background.type === 'color' ? 100 : 30)}%</span>
+                        {localBackground && (
+                          <div className="space-y-6">
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <label className="text-xs font-bold text-text-muted uppercase">Opacidade do Fundo</label>
+                                <span className="text-xs text-text-secondary">{localBackground.opacity ?? (localBackground.type === 'color' ? 100 : 30)}%</span>
+                              </div>
+                              <input 
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={localBackground.opacity ?? (localBackground.type === 'color' ? 100 : 30)}
+                                onChange={(e) => updateLocalBackground({ opacity: parseInt(e.target.value) })}
+                                className="w-full h-1.5 bg-bg-primary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
+                              />
+                              <p className="text-[10px] text-text-muted">
+                                Ajuste a visibilidade do fundo. Para cores, 100% é o padrão. Para vídeos/gifs/imagens, valores menores (30-50%) funcionam melhor.
+                              </p>
                             </div>
-                            <input 
-                              type="range"
-                              min="0"
-                              max="100"
-                              value={currentUser.background.opacity ?? (currentUser.background.type === 'color' ? 100 : 30)}
-                              onChange={(e) => updateUserProfile(currentUser.uid, { 
-                                background: { 
-                                  ...currentUser.background!,
-                                  opacity: parseInt(e.target.value) 
-                                } 
-                              })}
-                              className="w-full h-1.5 bg-bg-primary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
-                            />
-                            <p className="text-[10px] text-text-muted">
-                              Ajuste a visibilidade do fundo. Para cores, 100% é o padrão. Para vídeos/gifs, valores menores (30-50%) funcionam melhor.
-                            </p>
+
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <label className="text-xs font-bold text-text-muted uppercase">Brilho</label>
+                                <span className="text-xs text-text-secondary">{localBackground.brightness ?? 100}%</span>
+                              </div>
+                              <input 
+                                type="range"
+                                min="0"
+                                max="200"
+                                value={localBackground.brightness ?? 100}
+                                onChange={(e) => updateLocalBackground({ brightness: parseInt(e.target.value) })}
+                                className="w-full h-1.5 bg-bg-primary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <label className="text-xs font-bold text-text-muted uppercase">Contraste</label>
+                                <span className="text-xs text-text-secondary">{localBackground.contrast ?? 100}%</span>
+                              </div>
+                              <input 
+                                type="range"
+                                min="0"
+                                max="200"
+                                value={localBackground.contrast ?? 100}
+                                onChange={(e) => updateLocalBackground({ contrast: parseInt(e.target.value) })}
+                                className="w-full h-1.5 bg-bg-primary rounded-lg appearance-none cursor-pointer accent-[#5865f2]"
+                              />
+                            </div>
                           </div>
                         )}
                       </div>

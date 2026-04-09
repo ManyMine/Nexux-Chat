@@ -3,15 +3,19 @@ import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile } from '@/src/types';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
+import { UserProfileModal } from './UserProfileModal';
 
 interface UserListProps {
   users: UserProfile[];
   isOpen: boolean;
   currentUser?: UserProfile;
   onContextMenu?: (e: React.MouseEvent, user: UserProfile) => void;
+  onUserClick?: (user: UserProfile) => void;
 }
 
-export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, onContextMenu }) => {
+export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, onContextMenu, onUserClick }) => {
+  const [selectedUserProfile, setSelectedUserProfile] = React.useState<UserProfile | null>(null);
+  
   if (!isOpen) return null;
 
   const visibleUsers = users.filter(u => !u.isPrivate || u.uid === currentUser?.uid);
@@ -34,7 +38,10 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
             </h3>
             <div className="space-y-1">
               {onlineUsers.map(user => (
-                <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} />
+                <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} onUserClick={(u) => {
+                  setSelectedUserProfile(u);
+                  onUserClick?.(u);
+                }} />
               ))}
             </div>
           </div>
@@ -47,7 +54,10 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
             </h3>
             <div className="space-y-1">
               {awayUsers.map(user => (
-                <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} />
+                <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} onUserClick={(u) => {
+                  setSelectedUserProfile(u);
+                  onUserClick?.(u);
+                }} />
               ))}
             </div>
           </div>
@@ -60,19 +70,39 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
             </h3>
             <div className="space-y-1">
               {offlineUsers.map(user => (
-                <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} />
+                <UserItem key={user.uid} user={user} onContextMenu={onContextMenu} onUserClick={(u) => {
+                  setSelectedUserProfile(u);
+                  onUserClick?.(u);
+                }} />
               ))}
             </div>
           </div>
         )}
       </div>
+
+      {/* User Profile Modal */}
+      {selectedUserProfile && currentUser && (
+        <UserProfileModal 
+          user={selectedUserProfile}
+          currentUser={currentUser}
+          isOpen={!!selectedUserProfile}
+          onClose={() => setSelectedUserProfile(null)}
+          onSendMessage={() => {
+            if (selectedUserProfile.uid !== currentUser.uid) {
+              onUserClick?.(selectedUserProfile);
+              setSelectedUserProfile(null);
+            }
+          }}
+        />
+      )}
     </motion.div>
   );
 };
 
-const UserItem: React.FC<{ user: UserProfile, onContextMenu?: (e: React.MouseEvent, user: UserProfile) => void }> = ({ user, onContextMenu }) => (
+const UserItem: React.FC<{ user: UserProfile, onContextMenu?: (e: React.MouseEvent, user: UserProfile) => void, onUserClick?: (user: UserProfile) => void }> = ({ user, onContextMenu, onUserClick }) => (
   <button 
     onContextMenu={(e) => onContextMenu?.(e, user)}
+    onClick={() => onUserClick?.(user)}
     className="w-full flex items-center p-2 rounded-md hover:bg-bg-tertiary transition-colors group"
   >
     <div className="relative mr-3">
