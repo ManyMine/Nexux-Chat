@@ -9,7 +9,7 @@
         "email": { "type": "string", "format": "email", "description": "User email address" },
         "displayName": { "type": "string", "description": "User display name" },
         "photoURL": { "type": "string", "description": "User profile photo URL" },
-        "status": { "type": "string", "enum": ["online", "offline", "away"], "description": "User online status" },
+        "status": { "type": "string", "enum": ["online", "offline", "away", "dnd"], "description": "User online status" },
         "createdAt": { "type": "number", "description": "Timestamp of account creation" },
         "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" },
         "isBlocked": { "type": "boolean", "description": "Whether the user is blocked" },
@@ -83,6 +83,30 @@
         "content": { "type": "string" },
         "timestamp": { "type": "number" }
       }
+    },
+    "statusPresence": {
+      "title": "Status Presence",
+      "description": "Tracks users currently viewing the status menu",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of the user" },
+        "userName": { "type": "string", "description": "Name of the user" },
+        "userPhoto": { "type": "string", "description": "Photo URL of the user" },
+        "lastSeen": { "type": "number", "description": "Timestamp of last activity" }
+      },
+      "required": ["userId", "userName", "lastSeen"]
+    },
+    "drafts": {
+      "title": "Draft",
+      "description": "Saved message draft for a channel",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of the user" },
+        "channelId": { "type": "string", "description": "ID of the channel" },
+        "content": { "type": "string", "description": "Draft content" },
+        "updatedAt": { "type": "number", "description": "Timestamp of last update" }
+      },
+      "required": ["userId", "channelId", "content", "updatedAt"]
     }
   },
   "firestore": {
@@ -101,6 +125,14 @@
     "/statuses/{statusId}": {
       "schema": "statuses",
       "description": "Status documents"
+    },
+    "/statusPresence/{userId}": {
+      "schema": "statusPresence",
+      "description": "Presence documents for status menu"
+    },
+    "/drafts/{draftId}": {
+      "schema": "drafts",
+      "description": "Draft documents"
     }
   }
 }

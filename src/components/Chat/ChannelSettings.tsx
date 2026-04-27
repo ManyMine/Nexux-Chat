@@ -1,9 +1,11 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Trash2, Edit2, Loader2, Hash, Lock, PlusCircle, Upload } from 'lucide-react';
+import { X, Trash2, Edit2, Loader2, Hash, Lock, PlusCircle, Upload, Maximize2 } from 'lucide-react';
 import { Channel } from '@/src/types';
 import { uploadFile } from '@/src/services/firebaseService';
 import { cn } from '@/src/lib/utils';
+import { useToast } from '@/src/context/ToastContext';
+import { ConfirmationModal } from '../ConfirmationModal';
 
 interface ChannelSettingsProps {
   channel: Channel;
@@ -24,11 +26,35 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
   isOwner,
   isAdmin
 }) => {
+  const { showToast } = useToast();
   const [isDeleting, setIsDeleting] = React.useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = React.useState(false);
   const [isUpdating, setIsUpdating] = React.useState(false);
   const [isUploadingBackground, setIsUploadingBackground] = React.useState(false);
   const [name, setName] = React.useState(channel.name);
   const [localBackground, setLocalBackground] = React.useState(channel.background);
+
+  const bgStyles = React.useMemo(() => {
+    if (!localBackground) return {};
+    const bg = localBackground;
+    const styles: any = {
+      opacity: (bg.opacity ?? 100) / 100,
+      filter: `brightness(${bg.brightness ?? 100}%) contrast(${bg.contrast ?? 100}%)`
+    };
+    if (bg.type === 'color') styles.backgroundColor = bg.value;
+    if (bg.type === 'gradient') styles.background = bg.value;
+    if (bg.type === 'pattern') {
+      const patterns: Record<string, string> = {
+        'dots': 'radial-gradient(circle, currentColor 1px, transparent 1px)',
+        'lines': 'linear-gradient(45deg, currentColor 1px, transparent 1px)',
+        'grid': 'linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)'
+      };
+      styles.backgroundImage = patterns[bg.patternId || 'dots'];
+      styles.backgroundSize = '20px 20px';
+      styles.color = bg.patternColor || '#ffffff11';
+    }
+    return styles;
+  }, [localBackground]);
 
   const canManage = isOwner || isAdmin;
 
@@ -44,16 +70,16 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
   };
 
   const handleDelete = async () => {
-    if (window.confirm(`Tem certeza que deseja excluir o canal #${channel.name}? Esta ação não pode ser desfeita.`)) {
-      setIsDeleting(true);
-      try {
-        await onDelete(channel.id);
-        onClose();
-      } catch (error) {
-        console.error("Error deleting channel:", error);
-      } finally {
-        setIsDeleting(false);
-      }
+    setIsDeleting(true);
+    try {
+      await onDelete(channel.id);
+      onClose();
+    } catch (error) {
+      console.error("Error deleting channel:", error);
+      showToast("Erro ao excluir canal.", "error");
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -82,8 +108,9 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
+    <>
+      <AnimatePresence>
+        {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0 }}
@@ -98,7 +125,28 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className="relative bg-bg-primary w-full max-w-[440px] rounded-lg shadow-2xl overflow-hidden"
           >
-            <div className="p-6">
+            {/* Background Layer */}
+            {localBackground && (
+              <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+                <div className="absolute inset-0" style={bgStyles} />
+                {['image', 'gif', 'video'].includes(localBackground.type) && localBackground.value && (
+                  localBackground.type === 'video' ? (
+                    <video autoPlay muted loop playsInline className="w-full h-full object-cover">
+                      <source src={localBackground.value} />
+                    </video>
+                  ) : (
+                    <img 
+                      src={localBackground.value} 
+                      className="w-full h-full" 
+                      style={{ objectFit: localBackground.objectFit || 'cover' }}
+                      referrerPolicy="no-referrer"
+                    />
+                  )
+                )}
+              </div>
+            )}
+
+            <div className="p-6 relative z-10">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-text-primary flex items-center">
                    Configurações do Canal
@@ -290,7 +338,7 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
                                             value: url 
                                           });
                                         } catch (err) {
-                                          alert("Erro ao fazer upload do fundo.");
+                                          showToast("Erro ao fazer upload do fundo.", "error");
                                         } finally {
                                           setIsUploadingBackground(false);
                                         }
@@ -307,6 +355,23 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
                             )}
                           </div>
                         </div>
+                      </div>
+                    )}
+
+                    {localBackground?.type === 'image' && (
+                      <div className="pt-2">
+                        <button
+                          onClick={() => {
+                            const fits: any[] = ['cover', 'contain', 'fill', 'none', 'scale-down'];
+                            const currentIndex = fits.indexOf(localBackground?.objectFit || 'cover');
+                            const nextIndex = (currentIndex + 1) % fits.length;
+                            updateLocalBackground({ objectFit: fits[nextIndex] });
+                          }}
+                          className="flex items-center space-x-2 text-xs text-[#5865f2] hover:underline"
+                        >
+                          <Maximize2 className="w-3 h-3" />
+                          <span>Redimensionar: <span className="font-bold uppercase">{localBackground?.objectFit || 'cover'}</span></span>
+                        </button>
                       </div>
                     )}
 
@@ -374,7 +439,7 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
                     <div className="border-t border-border-primary pt-4">
                       <button
                         disabled={isDeleting}
-                        onClick={handleDelete}
+                        onClick={() => setShowDeleteConfirm(true)}
                         className="w-full bg-transparent border border-[#f23f42] text-[#f23f42] hover:bg-[#f23f42] hover:text-white font-bold py-3 rounded-md transition-all flex items-center justify-center"
                       >
                         {isDeleting ? <Loader2 className="w-5 h-5 animate-spin" /> : (
@@ -393,5 +458,14 @@ export const ChannelSettings: React.FC<ChannelSettingsProps> = ({
         </div>
       )}
     </AnimatePresence>
-  );
+
+    <ConfirmationModal
+      isOpen={showDeleteConfirm}
+      title="Excluir Canal"
+      message={`Tem certeza que deseja excluir o canal #${channel.name}? Esta ação não pode ser desfeita.`}
+      onConfirm={handleDelete}
+      onCancel={() => setShowDeleteConfirm(false)}
+    />
+  </>
+);
 };

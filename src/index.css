@@ -43,6 +43,14 @@
   --border-primary: #1e1f22;
 }
 
+body, html {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
 .light {
   /* Light Theme */
   --bg-primary: #ffffff;
@@ -53,6 +61,13 @@
   --text-secondary: #313338;
   --text-muted: #5c5e66;
   --border-primary: #e3e5e8;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  margin: 0;
+  padding: 0;
 }
 
 .mirror {
@@ -136,4 +151,134 @@
 
 .simple-mode .sidebar {
   display: none !important;
+}
+
+/* Performance Optimizations for 120 FPS */
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.will-change-transform {
+  will-change: transform;
+}
+
+.will-change-opacity {
+  will-change: opacity;
+}
+
+.will-change-contents {
+  will-change: contents;
+}
+
+/* Hardware acceleration for smooth animations */
+.gpu-accelerated {
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Optimize rendering of large lists */
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 500px;
+}
+
+/* Debug Outlines for Developer Mode */
+.debug-outlines * {
+  outline: 1px solid rgba(255, 0, 0, 0.3) !important;
+}
+
+/* Accessibility Themes */
+body.theme-autism {
+  --bg-primary: #f0f4f8;
+  --bg-secondary: #e1e8f0;
+  --bg-tertiary: #d1dce5;
+  --bg-overlay: #e1e8f0;
+  --text-primary: #2d3748;
+  --text-secondary: #4a5568;
+  --text-muted: #718096;
+  --border-primary: #cbd5e0;
+  --brand: #4fd1c5;
+  --brand-hover: #38b2ac;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  /* Soft, calming background pattern */
+  background-image: radial-gradient(#cbd5e0 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+body.theme-adhd {
+  /* High contrast, minimal distractions */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7fafc;
+  --bg-tertiary: #edf2f7;
+  --text-primary: #1a202c;
+  --text-secondary: #2d3748;
+  --text-muted: #4a5568;
+  --brand: #3182ce;
+  --brand-hover: #2b6cb0;
+}
+
+body.theme-adhd * {
+  /* Reduce animations to help focus */
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+body.theme-dyslexia * {
+  font-family: 'Comic Sans MS', 'OpenDyslexic', 'Arial', sans-serif !important;
+  letter-spacing: 0.1em !important;
+  word-spacing: 0.2em !important;
+  line-height: 1.6 !important;
+}
+
+body.theme-high-contrast {
+  --bg-primary: #000000;
+  --bg-secondary: #111111;
+  --bg-tertiary: #222222;
+  --bg-overlay: #111111;
+  --text-primary: #ffffff;
+  --text-secondary: #ffff00;
+  --text-muted: #cccccc;
+  --border-primary: #ffffff;
+  --brand: #ffff00;
+  --brand-hover: #cccc00;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+body.theme-high-contrast * {
+  border-color: #ffffff !important;
+}
+
+body.theme-student {
+  --bg-primary: #fdf6e3; /* Soft cream/paper color */
+  --bg-secondary: #eee8d5;
+  --bg-tertiary: #93a1a1;
+  --bg-overlay: #fdf6e3;
+  --text-primary: #073642;
+  --text-secondary: #586e75;
+  --text-muted: #657b83;
+  --border-primary: #93a1a1;
+  --brand: #268bd2;
+  --brand-hover: #2aa198;
+  --accent: #d33682;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  /* Subtle notebook line pattern */
+  background-image: linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px);
+  background-size: 100% 2rem;
+}
+
+body.theme-student * {
+  border-color: rgba(0,0,0,0.1) !important;
+}
+
+/* Better focus outlines globally for keyboard navigation */
+*:focus-visible {
+  outline: 3px solid var(--brand) !important;
+  outline-offset: 2px !important;
 }

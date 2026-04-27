@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion, Reorder, useDragControls } from 'motion/react';
 import { Hash, Settings, LogOut, Plus, UserCircle, ChevronDown, MessageSquare, UserPlus, Lock, PlayCircle, Shield, Menu, CheckSquare, Square, Trash2, Eye, VolumeX, FolderInput, Download, X } from 'lucide-react';
+import { PromptModal } from './PromptModal';
 import { UserProfile, Channel } from '@/src/types';
 import { cn } from '@/src/lib/utils';
 import { DEFAULT_AVATAR } from '@/src/constants';
@@ -25,6 +26,11 @@ interface SidebarProps {
   pendingReportsCount?: number;
   onClearUnreads: (channelIds: string[]) => void;
   onMuteChannels: (channelIds: string[], mute: boolean) => void;
+  hasUnreadStatuses?: boolean;
+  onToggleDevMode?: () => void;
+  onOpenDevTools?: () => void;
+  isDevMode?: boolean;
+  isLeftHanded?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -41,7 +47,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenReports,
   pendingReportsCount,
   onClearUnreads,
-  onMuteChannels
+  onMuteChannels,
+  hasUnreadStatuses,
+  onToggleDevMode,
+  onOpenDevTools,
+  isDevMode,
+  isLeftHanded
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -51,6 +62,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [selectedChannelForManager, setSelectedChannelForManager] = useState<Channel | null>(null);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
+  const [showCategoryPrompt, setShowCategoryPrompt] = useState(false);
+  const [categoryPromptData, setCategoryPromptData] = useState<{resolve: (val: string | null) => void, reject: () => void} | null>(null);
 
   // Sync local channels with props, sorting by order if available
   useEffect(() => {
@@ -129,7 +142,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const handleMoveToCategorySelected = async () => {
-    const categoryName = window.prompt("Digite o nome da categoria para mover (ou deixe vazio para remover):");
+    const categoryName = await new Promise<string | null>((resolve, reject) => {
+      setCategoryPromptData({ resolve, reject });
+      setShowCategoryPrompt(true);
+    });
     if (categoryName === null) return;
 
     let categoryId: string | undefined = undefined;
@@ -188,19 +204,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const categories = localChannels.filter(c => c.type === 'category');
-  const uncategorizedChannels = localChannels.filter(c => (c.type === 'public' || c.type === 'private_group') && !c.parentId);
+  const uncategorizedChannels = localChannels.filter(c => 
+    ['public', 'private_group', 'community', 'project', 'server', 'topic'].includes(c.type) && !c.parentId
+  );
   const privateChannels = localChannels.filter(c => c.type === 'private');
 
   return (
-    <div className="w-[240px] bg-bg-secondary flex flex-col h-full border-r border-border-primary/50 select-none">
+    <div className={cn("w-[240px] bg-bg-secondary flex flex-col h-full select-none", isLeftHanded ? "border-l border-border-primary/50" : "border-r border-border-primary/50")}>
       {/* Server Header */}
+      <PromptModal
+        isOpen={showCategoryPrompt}
+        title="Mover para Categoria"
+        message="Digite o nome da categoria para mover (ou deixe vazio para remover):"
+        placeholder="Nome da categoria"
+        onConfirm={(val) => {
+          setShowCategoryPrompt(false);
+          categoryPromptData?.resolve(val);
+        }}
+        onCancel={() => {
+          setShowCategoryPrompt(false);
+          categoryPromptData?.resolve(null);
+        }}
+      />
       <div className="relative">
-        <button 
+        <div 
           onClick={() => setIsServerMenuOpen(!isServerMenuOpen)}
-          className="h-12 w-full px-4 flex items-center justify-between hover:bg-bg-tertiary transition-colors border-b border-border-primary/50 shadow-sm group"
+          className="h-16 w-full px-4 flex items-center justify-between hover:bg-bg-tertiary transition-colors border-b border-border-primary/50 shadow-sm group cursor-pointer"
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsServerMenuOpen(!isServerMenuOpen); }}
         >
-          <h1 className="font-bold text-text-primary truncate">Nexus Chat</h1>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col items-center justify-center w-full gpu-accelerated">
+            <img 
+              src="https://img.sanishtech.com/u/47612354b3429905a0e4183c638bcdfb.png" 
+              alt="Logo" 
+              className="w-10 h-10 object-contain mb-1 will-change-transform"
+              referrerPolicy="no-referrer"
+            />
+            <h1 className="font-bold text-text-primary truncate text-sm">Noton Nexus</h1>
+          </div>
+          <div className="flex items-center space-x-2 absolute right-4">
             <button 
               onClick={(e) => {
                 e.stopPropagation();
@@ -212,6 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 isMultiSelectMode ? "text-color-brand" : "text-text-muted"
               )}
               title="Multi-seleção de conversas"
+              aria-label="Ativar multi-seleção de conversas"
             >
               <CheckSquare className="w-4 h-4" />
             </button>
@@ -220,7 +264,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               isServerMenuOpen && "rotate-180"
             )} />
           </div>
-        </button>
+        </div>
 
         {isServerMenuOpen && (
           <div className="absolute top-11 left-2 right-2 bg-bg-overlay rounded-md shadow-xl p-2 z-50 border border-border-primary">
@@ -271,15 +315,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Status Button */}
         <button 
           onClick={onOpenStatus}
-          className="w-full flex items-center px-2 py-2 rounded-md transition-all bg-bg-tertiary/30 hover:bg-bg-tertiary text-text-secondary border border-border-primary/30 group mb-4"
+          className="w-full flex items-center px-2 py-2 rounded-md transition-all bg-bg-tertiary/30 hover:bg-bg-tertiary text-text-secondary border border-border-primary/30 group mb-4 relative"
         >
-          <div className="w-8 h-8 rounded-full bg-color-brand/20 flex items-center justify-center mr-3 group-hover:bg-color-brand/30 transition-colors">
+          <div className="w-8 h-8 rounded-full bg-color-brand/20 flex items-center justify-center mr-3 group-hover:bg-color-brand/30 transition-colors relative">
             <PlayCircle className="w-5 h-5 text-color-brand" />
+            {hasUnreadStatuses && (
+              <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-color-brand rounded-full border-2 border-bg-secondary animate-pulse" />
+            )}
           </div>
           <div className="flex-1 text-left">
             <p className="text-sm font-bold text-text-primary">Status</p>
             <p className="text-[10px] text-text-muted">Veja as atualizações</p>
           </div>
+          {hasUnreadStatuses && (
+            <div className="w-2 h-2 bg-color-brand rounded-full shadow-[0_0_8px_var(--brand)]" />
+          )}
         </button>
 
         {/* Uncategorized Channels */}
@@ -397,6 +447,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         user={currentUser}
         onLogout={onLogout}
         onOpenSettings={onOpenUserSettings}
+        onToggleDevMode={onToggleDevMode}
+        onOpenDevTools={onOpenDevTools}
+        isDevMode={isDevMode}
+        activeChannel={activeChannel}
       />
 
       <CreateChannelModal 
@@ -529,7 +583,9 @@ const CategoryItem: React.FC<CategoryItemProps> = ({
   selectedChannelIds,
   onToggleSelect
 }) => {
-  const categoryChannels = localChannels.filter(c => (c.type === 'public' || c.type === 'private_group') && c.parentId === category.id);
+  const categoryChannels = localChannels.filter(c => 
+    ['public', 'private_group', 'community', 'project', 'server', 'topic'].includes(c.type) && c.parentId === category.id
+  );
 
   return (
     <Reorder.Item 
@@ -640,7 +696,7 @@ const PrivateChannelItem: React.FC<PrivateChannelItemProps> = ({
         onClick={() => isMultiSelectMode ? onToggleSelect?.() : onChannelSelect(channel)}
         onDoubleClick={() => !isMultiSelectMode && onManage?.(channel)}
         className={cn(
-          "w-full flex items-center px-2 py-1.5 rounded-md transition-all group relative cursor-pointer",
+          "w-full flex items-center px-3 py-2.5 md:py-1.5 rounded-xl md:rounded-md transition-all group relative cursor-pointer",
           (activeChannel?.id === channel.id || isSelected)
             ? "bg-bg-tertiary text-text-primary" 
             : isUnread
@@ -649,32 +705,32 @@ const PrivateChannelItem: React.FC<PrivateChannelItemProps> = ({
         )}
       >
         {isMultiSelectMode && (
-          <div className="mr-2">
+          <div className="mr-3">
             {isSelected ? (
-              <CheckSquare className="w-4 h-4 text-color-brand" />
+              <CheckSquare className="w-5 h-5 md:w-4 md:h-4 text-color-brand" />
             ) : (
-              <Square className="w-4 h-4 text-text-muted" />
+              <Square className="w-5 h-5 md:w-4 md:h-4 text-text-muted" />
             )}
           </div>
         )}
-        {isUnread && !isMultiSelectMode && <div className="absolute -left-1 w-1 h-2 bg-text-primary rounded-r-full" />}
-        <span className="truncate flex-1 text-left">{displayName}</span>
+        {isUnread && !isMultiSelectMode && <div className="absolute -left-1 w-1 h-3 bg-text-primary rounded-r-full" />}
+        <span className="truncate flex-1 text-left text-sm md:text-xs">{displayName}</span>
 
-        <div className="relative ml-2">
+        <div className="relative ml-3">
           <img 
             src={photoURL} 
             alt={displayName}
-            className="w-6 h-6 rounded-full object-cover"
+            className="w-7 h-7 md:w-6 md:h-6 rounded-full object-cover"
             referrerPolicy="no-referrer"
           />
           {otherUser?.status === 'online' && (
-            <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-color-success rounded-full border-2 border-bg-secondary" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 md:w-2.5 md:h-2.5 bg-color-success rounded-full border-2 border-bg-secondary" />
           )}
         </div>
         
         {isUnread && !isMultiSelectMode && (
-          <div className="w-4 h-4 bg-color-accent rounded-full flex items-center justify-center ml-2 shadow-[0_0_8px_var(--accent)]">
-            <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+          <div className="w-5 h-5 md:w-4 md:h-4 bg-color-accent rounded-full flex items-center justify-center ml-3 shadow-[0_0_8px_var(--accent)]">
+            <div className="w-2 h-2 md:w-1.5 md:h-1.5 bg-white rounded-full animate-pulse" />
           </div>
         )}
       </button>
@@ -715,7 +771,7 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
         onClick={() => isMultiSelectMode ? onToggleSelect?.() : onChannelSelect(channel)}
         onDoubleClick={() => !isMultiSelectMode && onManage?.(channel)}
         className={cn(
-          "w-full flex items-center px-2 py-1.5 rounded-md transition-all group relative cursor-pointer",
+          "w-full flex items-center px-3 py-2.5 md:py-1.5 rounded-xl md:rounded-md transition-all group relative cursor-pointer",
           (activeChannel?.id === channel.id || isSelected)
             ? "bg-bg-tertiary text-text-primary" 
             : isUnread
@@ -724,30 +780,35 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
         )}
       >
         {isMultiSelectMode && (
-          <div className="mr-2">
+          <div className="mr-3">
             {isSelected ? (
-              <CheckSquare className="w-4 h-4 text-color-brand" />
+              <CheckSquare className="w-5 h-5 md:w-4 md:h-4 text-color-brand" />
             ) : (
-              <Square className="w-4 h-4 text-text-muted" />
+              <Square className="w-5 h-5 md:w-4 md:h-4 text-text-muted" />
             )}
           </div>
         )}
-        {isUnread && !isMultiSelectMode && <div className="absolute -left-1 w-1 h-2 bg-text-primary rounded-r-full" />}
+        {isUnread && !isMultiSelectMode && <div className="absolute -left-1 w-1 h-3 bg-text-primary rounded-r-full" />}
         {channel.type === 'private_group' ? (
           <Lock className={cn(
-            "w-4 h-4 mr-2 transition-colors",
+            "w-5 h-5 md:w-4 md:h-4 mr-3 md:mr-2 transition-colors",
+            (activeChannel?.id === channel.id || isUnread || isSelected) ? "text-color-brand" : "text-text-muted group-hover:text-text-secondary"
+          )} />
+        ) : ['community', 'project', 'server', 'topic'].includes(channel.type) ? (
+          <FolderInput className={cn(
+            "w-5 h-5 md:w-4 md:h-4 mr-3 md:mr-2 transition-colors",
             (activeChannel?.id === channel.id || isUnread || isSelected) ? "text-color-brand" : "text-text-muted group-hover:text-text-secondary"
           )} />
         ) : (
           <Hash className={cn(
-            "w-5 h-5 mr-1.5 transition-colors",
+            "w-6 h-6 md:w-5 md:h-5 mr-2 md:mr-1.5 transition-colors",
             (activeChannel?.id === channel.id || isUnread || isSelected) ? "text-text-secondary" : "text-text-muted group-hover:text-text-secondary"
           )} />
         )}
-        <span className="truncate flex-1 text-left">{channel.name}</span>
+        <span className="truncate flex-1 text-left text-sm md:text-xs">{channel.name}</span>
         {isUnread && !isMultiSelectMode && (
-          <div className="w-4 h-4 bg-color-accent rounded-full flex items-center justify-center ml-2 shadow-[0_0_8px_var(--accent)]">
-            <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+          <div className="w-5 h-5 md:w-4 md:h-4 bg-color-accent rounded-full flex items-center justify-center ml-3 shadow-[0_0_8px_var(--accent)]">
+            <div className="w-2 h-2 md:w-1.5 md:h-1.5 bg-white rounded-full animate-pulse" />
           </div>
         )}
       </button>

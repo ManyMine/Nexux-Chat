@@ -3,7 +3,7 @@ export interface UserProfile {
   email?: string;
   displayName: string;
   photoURL?: string;
-  status?: 'online' | 'offline' | 'away';
+  status?: 'online' | 'offline' | 'away' | 'dnd' | 'invisible' | 'auto';
   createdAt: number;
   role?: 'admin' | 'user';
   isBlocked?: boolean;
@@ -15,6 +15,7 @@ export interface UserProfile {
   cpf?: string;
   phone?: string;
   username?: string; // For "@" handle
+  about?: string;
   background?: {
     type: 'color' | 'video' | 'gif' | 'image' | 'gradient' | 'pattern';
     value: string; // hex color, URL, or CSS gradient string
@@ -23,6 +24,7 @@ export interface UserProfile {
     patternColor?: string; // Hex color for the pattern
     brightness?: number; // 0 to 200 (percentage)
     contrast?: number; // 0 to 200 (percentage)
+    size?: 'cover' | 'contain' | 'fill' | 'auto';
   };
   theme?: 'dark' | 'light';
   primaryColor?: string; // Hex for brand color
@@ -30,14 +32,26 @@ export interface UserProfile {
   isAnonymous?: boolean;
   expiresAt?: number;
   phoneNumber?: string;
-  language?: 'pt' | 'en' | 'es';
+  language?: 'pt' | 'en' | 'es' | 'fr' | 'de' | 'it' | 'ru' | 'zh';
+  zoom?: number; // 50 to 150 (percentage)
+  onboardingCompleted?: boolean;
+  linkPreviewsEnabled?: boolean;
+  statusSettings?: {
+    duration: '12h' | '24h' | '48h' | 'never';
+    privacy: 'all' | 'contacts' | 'private';
+    allowReplies?: boolean;
+    allowStatusChat?: boolean;
+    statusNotifications?: boolean;
+  };
 }
+
+export type ObjectFit = 'cover' | 'contain' | 'fill' | 'none' | 'scale-down';
 
 export interface Channel {
   id: string;
   name: string;
   description?: string;
-  type: 'public' | 'private' | 'category' | 'private_group';
+  type: 'public' | 'private' | 'category' | 'private_group' | 'community' | 'project' | 'server' | 'topic';
   createdBy: string;
   createdAt: number;
   members: string[]; // Array of UIDs
@@ -53,6 +67,8 @@ export interface Channel {
     patternColor?: string;
     brightness?: number;
     contrast?: number;
+    objectFit?: ObjectFit;
+    size?: 'cover' | 'contain' | 'fill' | 'auto';
   } | null;
 }
 
@@ -66,11 +82,20 @@ export interface Message {
   timestamp: number;
   fileUrl?: string;
   fileType?: string;
+  iv?: string; // For encryption
   readBy?: string[]; // Array of UIDs who read the message
   isEdited?: boolean;
   isPinned?: boolean;
   pinnedBy?: string;
   pinnedAt?: number;
+  reactions?: Record<string, string[]>; // emoji -> array of user UIDs
+  statusReply?: {
+    statusId: string;
+    userId: string;
+    mediaUrl: string;
+    mediaType: string;
+    caption?: string;
+  };
 }
 
 export interface Status {
@@ -79,13 +104,17 @@ export interface Status {
   userName: string;
   userPhoto?: string;
   mediaUrl: string;
-  mediaType: 'video' | 'image' | 'audio' | 'drawing' | 'link';
+  mediaType: 'video' | 'image' | 'audio' | 'drawing' | 'link' | 'text';
   caption?: string;
   timestamp: number;
+  expiresAt?: number; // -1 for never, or timestamp
   likes: string[]; // Array of UIDs
   comments: StatusComment[];
   views?: string[]; // Array of UIDs who viewed the status
   pinned?: boolean;
+  allowReplies?: boolean;
+  allowStatusChat?: boolean;
+  privacy?: 'all' | 'contacts' | 'private';
 }
 
 export interface StatusComment {
@@ -95,6 +124,7 @@ export interface StatusComment {
   userPhoto?: string;
   content: string;
   timestamp: number;
+  parentId?: string;
 }
 
 export interface Call {

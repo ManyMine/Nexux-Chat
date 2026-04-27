@@ -250,7 +250,7 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
       if (isScreenSharing) {
         try {
           if (!navigator.mediaDevices.getDisplayMedia) {
-            alert("Compartilhamento de tela não é suportado neste navegador ou dispositivo.");
+            console.error("Compartilhamento de tela não é suportado neste navegador ou dispositivo.");
             setIsScreenSharing(false);
             return;
           }

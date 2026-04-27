@@ -1,25 +1,32 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Hash, Send, PlusCircle, Gift, Sticker, Smile, Trash2, CheckCheck, Pencil, X, Copy, MessageSquare, Edit3, VolumeX, Users, PlusSquare, Shield, ShieldOff, Search, Languages, CheckSquare, Square, Download, Loader2, Pin, PinOff, Eye, Sparkles } from 'lucide-react';
+import { Hash, Send, PlusCircle, Gift, Sticker, Smile, SmilePlus, Trash2, CheckCheck, Pencil, X, Copy, MessageSquare, Edit3, VolumeX, Users, PlusSquare, Shield, ShieldOff, Search, Languages, CheckSquare, Square, Download, Loader2, Pin, PinOff, Eye, Sparkles, Paperclip, ChevronUp, ChevronDown, Mic, StopCircle } from 'lucide-react';
 import { Call, Channel, Message, UserProfile } from '@/src/types';
 import { cn } from '@/src/lib/utils';
 import { DEFAULT_AVATAR } from '@/src/constants';
+import { AudioPlayer } from './AudioPlayer';
 import { ChannelHeader } from './ChannelHeader';
 import { UserList } from './UserList';
 import { ChannelSettings } from './ChannelSettings';
 import { CallView } from './CallView';
 import { IncomingCallModal } from './IncomingCallModal';
 import { UserStatusView } from '../Status/UserStatusView';
-import { updateChannel, deleteChannel, deleteMessage, markMessageAsRead, getUsers, editMessage, createPrivateChannel, createChannel, startCall, updateCallStatus, listenForIncomingCalls, toggleChatAccess, togglePinMessage } from '@/src/services/firebaseService';
+import { updateChannel, deleteChannel, deleteMessage, markMessageAsRead, getUsers, editMessage, createPrivateChannel, createChannel, startCall, updateCallStatus, listenForIncomingCalls, toggleChatAccess, togglePinMessage, removeChannelMember, toggleReaction, updateStatusPresence, removeStatusPresence, listenForStatusPresence, saveDraft, getDraft, deleteDraft } from '@/src/services/firebaseService';
 import { translateText, chatWithGemini } from '@/src/services/geminiService';
 import { useI18n } from '@/src/lib/i18n';
 import { Status } from '@/src/types';
 import { STATUSES_COLLECTION } from '@/src/constants';
 import { db } from '@/src/firebase';
 import { onSnapshot, collection, query } from 'firebase/firestore';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
 
 import { UserProfileModal } from './UserProfileModal';
 import { AddMembersModal } from './AddMembersModal';
+import { ConfirmationModal } from '../ConfirmationModal';
+import { useAccessibility } from '@/src/contexts/AccessibilityContext';
+import { useToast } from '@/src/context/ToastContext';
+import { playMorseCode } from '@/src/lib/morse';
+import { speakText } from '@/src/lib/tts';
 
 interface ChatAreaProps {
   activeChannel: Channel | null;
@@ -35,7 +42,55 @@ interface ChatAreaProps {
   onStartCall: (video: boolean) => void;
   onEndCall: () => void;
   onOpenStatusForUser: (userId: string) => void;
+  onMuteChannels: (channelIds: string[], mute: boolean) => void;
+  channels: Channel[];
 }
+
+// Helper to safely handle Firestore timestamps
+const getTimestampDate = (ts: any) => {
+  if (!ts) return null;
+  if (typeof ts === 'number') return new Date(ts);
+  if (typeof ts.toDate === 'function') return ts.toDate();
+  if (ts instanceof Date) return ts;
+  if (ts.seconds !== undefined) return new Date(ts.seconds * 1000 + (ts.nanoseconds || 0) / 1000000);
+  return null;
+};
+
+const getTimestampMillis = (ts: any) => {
+  const date = getTimestampDate(ts);
+  return date ? date.getTime() : 0;
+};
+
+const LinkPreview: React.FC<{ url: string }> = ({ url }) => {
+  const [data, setData] = useState<any>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`)
+      .then(res => res.json())
+      .then(res => {
+        if (res.status === 'success') {
+          setData(res.data);
+        } else {
+          setError(true);
+        }
+      })
+      .catch(() => setError(true));
+  }, [url]);
+
+  if (error || !data) return null;
+
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="block mt-2 max-w-sm border border-border-primary rounded-lg overflow-hidden hover:bg-bg-secondary transition-colors">
+      {data.image?.url && <img src={data.image.url || undefined} alt={data.title} className="w-full h-32 object-cover will-change-transform" referrerPolicy="no-referrer" />}
+      <div className="p-3">
+        <h4 className="text-sm font-bold text-text-primary line-clamp-1">{data.title}</h4>
+        <p className="text-xs text-text-muted line-clamp-2 mt-1">{data.description}</p>
+        <span className="text-[10px] text-text-muted mt-2 block">{new URL(url).hostname}</span>
+      </div>
+    </a>
+  );
+};
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
   activeChannel,
@@ -50,10 +105,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   activeCall,
   onStartCall,
   onEndCall,
-  onOpenStatusForUser
+  onOpenStatusForUser,
+  onMuteChannels,
+  channels
 }) => {
   const { t } = useI18n();
+  const { showToast } = useToast();
   const [input, setInput] = useState('');
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showUsers, setShowUsers] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -63,6 +122,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [statuses, setStatuses] = useState<Status[]>([]);
   const [selectedStatusUserId, setSelectedStatusUserId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const { settings } = useAccessibility();
+  const prevMessagesLengthRef = useRef(messages.length);
+
+  useEffect(() => {
+    if ((settings.morseCode || settings.textToSpeech) && messages.length > prevMessagesLengthRef.current) {
+      const newMessages = messages.slice(prevMessagesLengthRef.current);
+      newMessages.forEach(msg => {
+        if (msg.senderId !== currentUser.uid && msg.content) {
+          if (settings.morseCode) playMorseCode(msg.content);
+          if (settings.textToSpeech) speakText(`${msg.senderName} disse: ${msg.content}`, settings.ttsVoiceName);
+        }
+      });
+    }
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages, settings.morseCode, settings.textToSpeech, currentUser.uid]);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,10 +149,37 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [userContextMenu, setUserContextMenu] = useState<{ x: number, y: number, user: UserProfile } | null>(null);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [lightboxFile, setLightboxFile] = useState<{ url: string, type: 'image' | 'video' } | null>(null);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, string>>({});
   const [isTranslating, setIsTranslating] = useState<string | null>(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [fullReactionPickerMessageId, setFullReactionPickerMessageId] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [pendingAudioFile, setPendingAudioFile] = useState<File | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const [hiddenStatusUsers, setHiddenStatusUsers] = useState<Set<string>>(new Set());
+  const [showScrollToTop, setShowScrollToTop] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const touchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const list = scrollRef.current;
+    if (!list) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = list;
+      setShowScrollToTop(scrollTop > 100);
+      setShowScrollToBottom(scrollTop < scrollHeight - clientHeight - 50);
+    };
+
+    list.addEventListener('scroll', handleScroll);
+    return () => list.removeEventListener('scroll', handleScroll);
+  }, [messages]);
 
   // Typing timeout
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -87,13 +188,27 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     const fetchUsers = async () => {
       try {
         const users = await getUsers();
-        setAllUsers(users);
+        
+        // Filter users based on privacy settings
+        const conversationUserIds = new Set(
+          channels
+            .filter(c => c.type === 'private')
+            .flatMap(c => c.members || [])
+        );
+
+        const filteredUsers = users.filter(u => 
+          u.uid === currentUser.uid || 
+          !u.isPrivate || 
+          conversationUserIds.has(u.uid)
+        );
+
+        setAllUsers(filteredUsers);
       } catch (error) {
         console.error("Error fetching users:", error);
       }
     };
     fetchUsers();
-  }, []);
+  }, [channels, currentUser.uid]);
 
   useEffect(() => {
     const q = query(collection(db, STATUSES_COLLECTION));
@@ -107,19 +222,112 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   }, []);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-
-    // Mark messages as read
-    if (activeChannel && messages.length > 0) {
-      messages.forEach(msg => {
-        if (msg.senderId !== currentUser.uid && (!msg.readBy || !msg.readBy.includes(currentUser.uid))) {
-          markMessageAsRead(activeChannel.id, msg.id, currentUser.uid);
+    if (activeChannel && currentUser) {
+      setDraftLoaded(false);
+      getDraft(currentUser.uid, activeChannel.id).then(draft => {
+        if (draft) {
+          setInput(draft.content);
+        } else {
+          setInput('');
         }
+        setDraftLoaded(true);
       });
     }
-  }, [messages, activeChannel, currentUser.uid]);
+  }, [activeChannel, currentUser]);
+
+  useEffect(() => {
+    if (activeChannel && currentUser && draftLoaded) {
+      const handler = setTimeout(() => {
+        if (input.trim()) {
+          saveDraft(currentUser.uid, activeChannel.id, input);
+        } else {
+          deleteDraft(currentUser.uid, activeChannel.id);
+        }
+      }, 1000);
+      return () => clearTimeout(handler);
+    }
+  }, [input, activeChannel, currentUser, draftLoaded]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      
+      // Check for supported mime type
+      const mediaRecorder = new MediaRecorder(stream);
+      
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        try {
+          console.log("Audio recording stopped, chunks:", audioChunksRef.current.length);
+          const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType });
+          console.log("Audio blob size:", audioBlob.size, "mime:", mediaRecorder.mimeType);
+          if (audioBlob.size === 0) {
+            // Give it a moment, sometimes it needs time to flush the last chunk
+            await new Promise(resolve => setTimeout(resolve, 500));
+            // Try finalizing again if still empty
+            if (audioChunksRef.current.length === 0) throw new Error("Recorded audio is empty");
+          }
+          let mimeType = mediaRecorder.mimeType;
+          if (!mimeType || mimeType === '' || !mimeType.startsWith('audio/')) {
+            mimeType = 'audio/webm';
+          }
+          const finalBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          const file = new File([finalBlob], `audio.${mimeType.split(';')[0].split('/')[1] || 'webm'}`, { type: mimeType });
+          
+          setPendingAudioFile(file);
+        } catch (error) {
+          console.error("Error finalizing audio:", error);
+          showToast(`Erro ao gravar áudio: ${error instanceof Error ? error.message : String(error)}`, "error");
+        } finally {
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+          }
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      // @ts-ignore
+      showToast("Não foi possível acessar seu microfone.", "error");
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      // Force finalize the data
+      mediaRecorderRef.current.requestData();
+      // Small delay to ensure data is processed before stopping
+      setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+        setIsRecording(false);
+      }, 300);
+    }
+  };
+
+  const sendPendingAudio = async () => {
+    if (pendingAudioFile) {
+      await onSendMessage('', pendingAudioFile);
+      setPendingAudioFile(null);
+    }
+  };
+
+  const cancelPendingAudio = () => {
+    setPendingAudioFile(null);
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
@@ -139,7 +347,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     const canChat = currentUser.canChat !== false || isAdmin;
 
     if (!canChat) {
-      alert("Você não tem permissão para enviar mensagens.");
+      showToast("Você não tem permissão para enviar mensagens.", "error");
       return;
     }
 
@@ -154,22 +362,111 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
     if (input.trim() || fileInputRef.current?.files?.[0]) {
       const file = fileInputRef.current?.files?.[0];
+      const trimmedInput = input.trim();
+
+      // Handle Slash Commands
+      if (trimmedInput.startsWith('/')) {
+        const [command, ...args] = trimmedInput.split(' ');
+        const cmd = command.toLowerCase();
+
+        switch (cmd) {
+          case '/help':
+            setShowHelpModal(true);
+            setInput('');
+            return;
+          case '/mute':
+            if (activeChannel) {
+              onMuteChannels([activeChannel.id], true);
+              setInput('');
+              return;
+            }
+            break;
+          case '/unmute':
+            if (activeChannel) {
+              onMuteChannels([activeChannel.id], false);
+              setInput('');
+              return;
+            }
+            break;
+          case '/pin':
+            if (activeChannel && messages.length > 0) {
+              const lastMsg = messages[messages.length - 1];
+              togglePinMessage(activeChannel.id, lastMsg.id, true, currentUser.uid);
+              setInput('');
+              return;
+            }
+            break;
+          case '/status':
+            onOpenStatusForUser(currentUser.uid);
+            setInput('');
+            return;
+          case '/shrug':
+            onSendMessage('¯\\_(ツ)_/¯');
+            setInput('');
+            return;
+          case '/tableflip':
+            onSendMessage('(╯°□°）╯︵ ┻━┻');
+            setInput('');
+            return;
+          case '/unflip':
+            onSendMessage('┬─┬ノ( º _ ºノ)');
+            setInput('');
+            return;
+          case '/me':
+            const action = args.join(' ');
+            if (action) {
+              onSendMessage(`* ${currentUser.displayName} ${action} *`);
+              setInput('');
+            }
+            return;
+          case '/invite':
+            setShowAddMembers(true);
+            setInput('');
+            return;
+          case '/settings':
+            setShowSettings(true);
+            setInput('');
+            return;
+          case '/search':
+            const queryStr = args.join(' ');
+            if (queryStr) {
+              setSearchQuery(queryStr);
+              setIsSearching(true);
+            }
+            setInput('');
+            return;
+          case '/leave':
+            if (activeChannel && activeChannel.type !== 'private') {
+              setShowLeaveConfirm(true);
+            } else {
+              showToast("Você não pode sair de uma conversa privada.", "warning");
+            }
+            return;
+          case '/clear':
+            setInput('');
+            return;
+          case '/gem':
+            const prompt = args.join(' ');
+            if (!prompt) {
+              showToast("Por favor, forneça um prompt para o Gemini. Ex: /gem como está o tempo?", "info");
+              return;
+            }
+            onSendMessage(input, file).finally(() => setIsUploading(false));
+            setInput('');
+            onStopTyping();
+            chatWithGemini(prompt).then(response => {
+              onSendMessage(`Gemini: ${response}`);
+            });
+            return;
+        }
+      }
+
       if (file) setIsUploading(true);
-      
-      if (input.trim().startsWith('/gem ')) {
-        const prompt = input.trim().substring(5);
-        onSendMessage(input, file).finally(() => setIsUploading(false));
-        setInput('');
-        onStopTyping();
-        
-        // Call Gemini
-        chatWithGemini(prompt).then(response => {
-          onSendMessage(`Gemini: ${response}`);
-        });
-      } else {
-        onSendMessage(input, file).finally(() => setIsUploading(false));
-        setInput('');
-        onStopTyping();
+      onSendMessage(input, file).finally(() => setIsUploading(false));
+      setInput('');
+      onStopTyping();
+      if (activeChannel) {
+        deleteDraft(currentUser.uid, activeChannel.id);
       }
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -235,7 +532,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const handleTouchStart = (e: React.TouchEvent, msg: Message) => {
     if (isMultiSelectMode) return;
-    const touch = e.touches[0];
+    const touch = e.touches?.[0];
+    if (!touch) return;
     touchTimeoutRef.current = setTimeout(() => {
       setContextMenu({ x: touch.clientX, y: touch.clientY, message: msg });
     }, 500);
@@ -255,6 +553,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       'pt': 'Português',
       'en': 'Inglês',
       'es': 'Espanhol',
+      'fr': 'Francês',
+      'de': 'Alemão',
+      'it': 'Italiano',
+      'ru': 'Russo',
+      'zh': 'Chinês',
       'ja': 'Japonês'
     };
 
@@ -283,16 +586,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const handleDeleteSelected = async () => {
     if (!activeChannel || selectedMessageIds.length === 0) return;
     
-    if (window.confirm(`Excluir ${selectedMessageIds.length} mensagens selecionadas?`)) {
-      try {
-        for (const id of selectedMessageIds) {
-          await deleteMessage(activeChannel.id, id);
-        }
-        setSelectedMessageIds([]);
-        setIsMultiSelectMode(false);
-      } catch (error) {
-        console.error("Error deleting selected messages:", error);
+    try {
+      for (const id of selectedMessageIds) {
+        await deleteMessage(activeChannel.id, id);
       }
+      setSelectedMessageIds([]);
+      setIsMultiSelectMode(false);
+    } catch (error) {
+      console.error("Error deleting selected messages:", error);
     }
   };
 
@@ -316,15 +617,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     if (selectedMessageIds.length === 0) return;
     const selectedMsgs = messages
       .filter(m => selectedMessageIds.includes(m.id))
-      .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+      .sort((a, b) => getTimestampMillis(a.timestamp) - getTimestampMillis(b.timestamp));
     
     const transcript = selectedMsgs.map(m => {
       const sender = allUsers.find(u => u.uid === m.senderId)?.displayName || 'Usuário';
-      return `[${m.timestamp?.toDate().toLocaleString() || ''}] ${sender}: ${m.content}`;
+      const date = getTimestampDate(m.timestamp);
+      return `[${date?.toLocaleString() || ''}] ${sender}: ${m.content}`;
     }).join('\n');
 
     navigator.clipboard.writeText(transcript);
-    alert("Transcrição copiada para a área de transferência!");
     setSelectedMessageIds([]);
     setIsMultiSelectMode(false);
   };
@@ -333,23 +634,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     if (selectedMessageIds.length === 0) return;
     const selectedMsgs = messages
       .filter(m => selectedMessageIds.includes(m.id))
-      .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+      .sort((a, b) => getTimestampMillis(a.timestamp) - getTimestampMillis(b.timestamp));
     
     const transcript = selectedMsgs.map(m => {
       const sender = allUsers.find(u => u.uid === m.senderId)?.displayName || 'Usuário';
-      return `[${m.timestamp?.toDate().toLocaleString() || ''}] ${sender}: ${m.content}`;
+      const date = getTimestampDate(m.timestamp);
+      return `[${date?.toLocaleString() || ''}] ${sender}: ${m.content}`;
     }).join('\n');
 
     const blob = new Blob([transcript], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `nexus-chat-export-${activeChannel?.name || 'chat'}.txt`;
+    a.download = `noton-nexus-export-${activeChannel?.name || 'chat'}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    
     setSelectedMessageIds([]);
     setIsMultiSelectMode(false);
   };
@@ -361,6 +662,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       'pt': 'Português',
       'en': 'Inglês',
       'es': 'Espanhol',
+      'fr': 'Francês',
+      'de': 'Alemão',
+      'it': 'Italiano',
+      'ru': 'Russo',
+      'zh': 'Chinês',
       'ja': 'Japonês'
     };
 
@@ -391,7 +697,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     if (selectedMessageIds.length === 0) return;
     const selectedMsgs = messages
       .filter(m => selectedMessageIds.includes(m.id))
-      .sort((a, b) => (a.timestamp?.toMillis() || 0) - (b.timestamp?.toMillis() || 0));
+      .sort((a, b) => getTimestampMillis(a.timestamp) - getTimestampMillis(b.timestamp));
     
     const content = selectedMsgs.map(m => m.content).join('\n');
     setInput(prev => (prev ? prev + '\n' : '') + content);
@@ -483,7 +789,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         <div className="bg-color-brand p-6 rounded-full shadow-2xl">
           <Hash className="w-16 h-16 text-white" />
         </div>
-        <h2 className="text-2xl font-bold text-text-primary">Bem-vindo ao Nexus Chat!</h2>
+        <h2 className="text-2xl font-bold text-text-primary">Bem-vindo ao Noton Nexus!</h2>
         <p className="text-text-muted max-w-md">
           Selecione um canal na barra lateral para começar a conversar ou crie um novo para reunir seus amigos.
         </p>
@@ -496,7 +802,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     : [];
 
   return (
-    <div className={cn("flex-1 flex flex-col h-full overflow-hidden relative", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}>
+    <div 
+      className={cn("flex-1 flex flex-col h-full overflow-hidden relative", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}
+      onClick={() => {
+        setContextMenu(null);
+        setUserContextMenu(null);
+        setShowEmojiPicker(false);
+        setShowGifPicker(false);
+        setShowGiftPicker(false);
+        setReactionPickerMessageId(null);
+      }}
+    >
       {/* Channel Background Layer */}
       {activeChannel?.background && (
         <div 
@@ -511,15 +827,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 muted 
                 loop 
                 playsInline 
-                className="w-full h-full object-cover"
+                className="w-full h-full"
+                style={{ objectFit: activeChannel.background.objectFit || 'cover' }}
               >
-                <source src={activeChannel.background.value} />
+                <source src={activeChannel.background.value || undefined} />
               </video>
             ) : (
               <img 
-                src={activeChannel.background.value} 
+                src={activeChannel.background.value || undefined} 
                 alt="channel background" 
-                className="w-full h-full object-cover"
+                className="w-full h-full"
+                style={{ objectFit: activeChannel.background.objectFit || 'cover' }}
                 referrerPolicy="no-referrer"
               />
             )
@@ -552,6 +870,41 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       </div>
 
       <div className="flex flex-1 overflow-hidden flex-col relative z-10">
+        {/* Status Row */}
+        {statuses.length > 0 && Array.from(new Set(statuses.map(s => s.userId))).filter(userId => !hiddenStatusUsers.has(userId)).length > 0 && (
+          <div className="flex items-center space-x-4 p-4 bg-bg-secondary border-b border-border-primary overflow-x-auto shrink-0">
+            {Array.from(new Set(statuses.map(s => s.userId)))
+              .filter(userId => !hiddenStatusUsers.has(userId))
+              .map(userId => {
+                const userStatuses = statuses.filter(s => s.userId === userId);
+                if (userStatuses.length === 0) return null;
+                const latestStatus = userStatuses[userStatuses.length - 1];
+                const user = allUsers.find(u => u.uid === userId) || currentUser;
+                
+                return (
+                  <button
+                    key={userId}
+                    onClick={() => setSelectedStatusUserId(userId)}
+                    className="flex flex-col items-center space-y-1 shrink-0 group"
+                  >
+                    <div className="relative">
+                      <div className="w-14 h-14 rounded-full border-2 border-color-brand p-0.5 overflow-hidden group-hover:scale-105 transition-transform">
+                        <img 
+                          src={user?.photoURL || latestStatus.userPhoto || DEFAULT_AVATAR} 
+                          className="w-full h-full rounded-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                    </div>
+                    <span className="text-xs text-text-secondary font-medium truncate w-16 text-center">
+                      {userId === currentUser.uid ? 'Seu Status' : (user?.displayName || latestStatus.userName || 'User').split(' ')[0]}
+                    </span>
+                  </button>
+                );
+            })}
+          </div>
+        )}
+
         {/* Search Results Overlay */}
         <AnimatePresence>
           {isSearching && searchQuery && (
@@ -597,7 +950,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         <div className="flex items-center space-x-2 mb-1">
                           <span className="font-bold text-text-primary text-sm">{msg.senderName}</span>
                           <span className="text-[10px] text-text-muted">
-                            {new Date(msg.timestamp).toLocaleString()}
+                            {getTimestampDate(msg.timestamp)?.toLocaleString() || ''}
                           </span>
                         </div>
                         <p className="text-sm text-text-secondary break-words">
@@ -668,7 +1021,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           </button>
                         </div>
                         <p className="text-sm text-text-secondary line-clamp-3">{msg.content}</p>
-                        <p className="text-[10px] text-text-muted mt-2">{new Date(msg.timestamp).toLocaleString()}</p>
+                        <p className="text-[10px] text-text-muted mt-2">{getTimestampDate(msg.timestamp)?.toLocaleString() || ''}</p>
                       </div>
                     ))
                   )}
@@ -678,17 +1031,43 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </AnimatePresence>
 
           {/* Messages List Area */}
-          <div className="flex-1 flex flex-col h-full min-w-0">
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+          <div className="absolute bottom-24 right-6 flex flex-col space-y-2 z-20">
+            <button 
+              onClick={() => scrollRef.current?.scrollTo({top: 0, behavior: 'smooth'})}
+              className={cn("p-2 bg-bg-secondary border border-border-primary rounded-full hover:bg-bg-tertiary shadow-lg text-text-primary transition-opacity duration-200", showScrollToTop ? "opacity-100" : "opacity-0 pointer-events-none")}
+              title="Ir para o topo"
+            >
+              <ChevronUp className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => scrollRef.current?.scrollTo({top: scrollRef.current.scrollHeight, behavior: 'smooth'})}
+              className={cn("p-2 bg-bg-secondary border border-border-primary rounded-full hover:bg-bg-tertiary shadow-lg text-text-primary transition-opacity duration-200", showScrollToBottom ? "opacity-100" : "opacity-0 pointer-events-none")}
+              title="Ir para o fim"
+            >
+              <ChevronDown className="w-5 h-5" />
+            </button>
+          </div>
           <div 
             ref={scrollRef}
             className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-border-primary scrollbar-track-transparent"
+            role="log"
+            aria-live="polite"
+            aria-atomic="false"
           >
             {/* Typing Indicator */}
             {typingUsers.length > 0 && (
-              <div className="text-xs text-text-muted italic px-4 py-1">
-                {typingUsers.length > 2 
-                  ? 'Vários usuários estão digitando...' 
-                  : `${typingUsers.join(' e ')} ${typingUsers.length === 1 ? 'está' : 'estão'} digitando...`}
+              <div className="flex items-center space-x-2 px-4 py-2 text-xs text-text-muted animate-in fade-in slide-in-from-bottom-2">
+                <div className="flex space-x-1">
+                  <div className="w-1.5 h-1.5 bg-color-brand rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                  <div className="w-1.5 h-1.5 bg-color-brand rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                  <div className="w-1.5 h-1.5 bg-color-brand rounded-full animate-bounce"></div>
+                </div>
+                <span className="font-medium">
+                  {typingUsers.length > 2 
+                    ? 'Vários usuários estão digitando...' 
+                    : `${typingUsers.join(' e ')} ${typingUsers.length === 1 ? 'está' : 'estão'} digitando...`}
+                </span>
               </div>
             )}
             {messages.length === 0 ? (
@@ -717,14 +1096,23 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             ) : (
               messages.map((msg, idx) => {
                 const isSameUserAsPrev = idx > 0 && messages[idx-1].senderId === msg.senderId;
-                const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const date = getTimestampDate(msg.timestamp);
+                const prevMsg = idx > 0 ? messages[idx-1] : null;
+                const prevDate = prevMsg ? getTimestampDate(prevMsg.timestamp) : null;
+                const isNewDay = !(!date || !prevDate) && date.toDateString() !== prevDate.toDateString();
+                const time = date ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
                 const isMyMessage = msg.senderId === currentUser.uid;
                 const readByUsers = allUsers.filter(u => msg.readBy?.includes(u.uid));
 
                 return (
-                  <div 
-                    key={msg.id} 
-                    onClick={() => {
+                  <div key={msg.id}>
+                    {(idx === 0 || isNewDay) && date && (
+                      <div className="text-center text-xs text-text-muted my-4">
+                        {date.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' })}
+                      </div>
+                    )}
+                    <div 
+                      onClick={() => {
                       if (isMultiSelectMode) {
                         toggleMessageSelection(msg.id);
                       } else if (contextMenu && contextMenu.message.id !== msg.id) {
@@ -768,10 +1156,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       />
                     ) : (
                       <div className="w-10 flex-shrink-0 flex justify-center opacity-0 group-hover:opacity-100">
-                        <span className="text-[10px] text-text-muted mt-1.5">{time}</span>
-                      </div>
+                    </div>
                     )}
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 flex flex-col">
                       {!isSameUserAsPrev && (
                         <div className="flex items-center space-x-2 mb-0.5">
                           <span 
@@ -785,10 +1172,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       )}
                       <div className="flex items-center justify-between group/msg">
                         <div className="flex-1 min-w-0">
-                          <p className="text-text-secondary break-words leading-relaxed whitespace-pre-wrap">
+                          <p className="text-text-secondary break-words leading-relaxed whitespace-pre-wrap flex items-end gap-2">
                             {msg.isPinned && <Pin className="w-3 h-3 text-color-brand inline-block mr-1 -mt-1" />}
                             {msg.content}
-                            {msg.isEdited && <span className="text-[10px] text-text-muted ml-1">(editado)</span>}
+                            {msg.isEdited && <span className="text-[10px] text-text-muted">(editado)</span>}
+                            {isSameUserAsPrev && <span className="text-[10px] text-text-muted">{time}</span>}
                           </p>
                           
                           {translatedMessages[msg.id] && (
@@ -856,19 +1244,89 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         </div>
                       )}
                     </div>
+                    </div>
 
-                      {msg.fileUrl && (
+                    {msg.fileUrl && (
                         msg.fileType?.startsWith('image/') ? (
-                          <img src={msg.fileUrl} alt="attachment" className="max-w-xs rounded-lg mt-2" />
-                        ) : msg.fileType?.startsWith('audio/') ? (
-                          <audio controls src={msg.fileUrl} className="mt-2" />
+                          <img 
+                            src={msg.fileUrl} 
+                            alt="attachment" 
+                            className="max-w-xs rounded-lg mt-2 cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => setLightboxFile({ url: msg.fileUrl!, type: 'image' })}
+                            referrerPolicy="no-referrer" 
+                          />
+                        ) : (msg.fileType?.includes('audio') || msg.fileUrl.includes('audio.')) ? (
+                          <AudioPlayer url={msg.fileUrl!} />
                         ) : msg.fileType?.startsWith('video/') ? (
-                          <video controls src={msg.fileUrl} className="max-w-xs rounded-lg mt-2" />
+                          <video 
+                            controls 
+                            src={msg.fileUrl} 
+                            className="max-w-xs rounded-lg mt-2 cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={() => setLightboxFile({ url: msg.fileUrl!, type: 'video' })}
+                          />
                         ) : (
                           <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[#5865f2] hover:underline mt-2 block">
                             Download File
                           </a>
                         )
+                      )}
+
+                      {msg.statusReply && (
+                        <div 
+                          className="mt-2 p-3 bg-bg-tertiary rounded-lg border-l-4 border-color-brand flex items-start space-x-3 cursor-pointer hover:bg-bg-secondary transition-colors"
+                          onClick={() => onOpenStatusForUser(msg.statusReply?.userId || msg.senderId)}
+                        >
+                          {msg.statusReply.mediaType === 'image' || msg.statusReply.mediaType === 'video' ? (
+                            <img src={msg.statusReply.mediaUrl || undefined} className="w-12 h-12 rounded object-cover will-change-transform" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-12 h-12 rounded bg-bg-primary flex items-center justify-center">
+                              <Eye className="w-5 h-5 text-text-muted" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-text-secondary">Respondeu ao status</p>
+                            {msg.statusReply.caption && (
+                              <p className="text-sm text-text-primary line-clamp-1 mt-0.5">{msg.statusReply.caption}</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {currentUser.linkPreviewsEnabled !== false && (
+                        <>
+                          {msg.content.match(/(https?:\/\/[^\s]+)/g)?.map((url, i) => (
+                            <LinkPreview key={i} url={url} />
+                          ))}
+                        </>
+                      )}
+
+                      {/* Reactions Display */}
+                      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Object.entries(msg.reactions).map(([emoji, users]) => {
+                            const hasReacted = users.includes(currentUser.uid);
+                            return (
+                              <button
+                                key={emoji}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (activeChannel) {
+                                    toggleReaction(activeChannel.id, msg.id, emoji, currentUser.uid);
+                                  }
+                                }}
+                                className={cn(
+                                  "flex items-center space-x-1 px-1.5 py-0.5 rounded-md text-xs border transition-colors",
+                                  hasReacted 
+                                    ? "bg-color-brand/20 border-color-brand/50 text-color-brand" 
+                                    : "bg-bg-secondary border-transparent text-text-muted hover:border-border-primary"
+                                )}
+                              >
+                                <span>{emoji}</span>
+                                <span className="font-bold">{users.length}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       )}
 
                       {/* Read receipts indicator below message (Discord style) */}
@@ -885,6 +1343,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     {/* Quick Action Bar (Hover) */}
                     {!isMultiSelectMode && !deletingMessageId && !editingMessageId && (
                       <div className="absolute top-0 right-4 -mt-3 hidden group-hover:flex items-center bg-bg-primary border border-border-primary rounded shadow-sm z-10 overflow-hidden">
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setReactionPickerMessageId(msg.id); }}
+                          className="p-1.5 hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors"
+                          title="Adicionar reação"
+                        >
+                          <SmilePlus className="w-4 h-4" />
+                        </button>
                         <button 
                           onClick={(e) => { e.stopPropagation(); handleTogglePin(msg); }}
                           className="p-1.5 hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-colors"
@@ -910,6 +1375,78 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
+                      </div>
+                    )}
+
+                    {/* Reaction Picker Popover */}
+                    {reactionPickerMessageId === msg.id && (
+                      <div 
+                        className="absolute top-0 right-12 -mt-10 bg-bg-primary border border-border-primary rounded-lg shadow-xl z-30 flex items-center p-1 space-x-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {['👍', '❤️', '😂', '😮', '😢', '😡', '🔥', '🎉'].map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (activeChannel) {
+                                await toggleReaction(activeChannel.id, msg.id, emoji, currentUser.uid);
+                                setReactionPickerMessageId(null);
+                              }
+                            }}
+                            className="w-8 h-8 flex items-center justify-center hover:bg-bg-secondary rounded text-lg transition-transform hover:scale-110"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                        <div className="w-px h-6 bg-border-primary mx-1" />
+                        <button 
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setFullReactionPickerMessageId(msg.id);
+                            setReactionPickerMessageId(null);
+                          }}
+                          className="w-8 h-8 flex items-center justify-center hover:bg-bg-secondary rounded text-text-muted"
+                          title="Mais emojis"
+                        >
+                          <PlusCircle className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setReactionPickerMessageId(null); }}
+                          className="w-8 h-8 flex items-center justify-center hover:bg-bg-secondary rounded text-text-muted"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Full Reaction Picker */}
+                    {fullReactionPickerMessageId === msg.id && (
+                      <div 
+                        className="absolute top-0 right-12 -mt-10 z-40"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="relative">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setFullReactionPickerMessageId(null); }}
+                            className="absolute -top-2 -right-2 bg-bg-secondary border border-border-primary rounded-full p-1 z-50 hover:bg-bg-tertiary"
+                          >
+                            <X className="w-3 h-3 text-text-muted" />
+                          </button>
+                          <EmojiPicker 
+                            theme={currentUser.theme === 'light' ? Theme.LIGHT : Theme.DARK}
+                            onEmojiClick={async (emojiData) => {
+                              if (activeChannel) {
+                                await toggleReaction(activeChannel.id, msg.id, emojiData.emoji, currentUser.uid);
+                                setFullReactionPickerMessageId(null);
+                              }
+                            }}
+                            lazyLoadEmojis={true}
+                            searchPlaceHolder="Buscar emoji..."
+                            width={300}
+                            height={400}
+                          />
+                        </div>
                       </div>
                     )}
 
@@ -947,7 +1484,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           </div>
 
           {/* Message Input */}
-          <div className="p-4 pt-0">
+          <div className="p-4 pt-0 shrink-0 min-w-0 w-full">
+            {pendingAudioFile && (
+              <div className="flex items-center gap-2 mb-2 p-2 bg-bg-secondary rounded-lg border border-border-primary/50">
+                 <AudioPlayer url={URL.createObjectURL(pendingAudioFile)} />
+                 <button onClick={sendPendingAudio} className="p-2 text-green-500 hover:text-green-600 transition-colors"><Send className="w-5 h-5"/></button>
+                 <button onClick={cancelPendingAudio} className="p-2 text-red-500 hover:text-red-600 transition-colors"><Trash2 className="w-5 h-5"/></button>
+              </div>
+            )}
             {editingMessageId && (
               <div className="flex items-center justify-between bg-bg-secondary px-4 py-2 rounded-t-lg border-b border-border-primary">
                 <span className="text-xs text-text-secondary">Editando mensagem...</span>
@@ -959,21 +1503,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             <form 
               onSubmit={handleSubmit}
               className={cn(
-                "bg-bg-tertiary px-4 py-2.5 flex items-center space-x-4 shadow-sm",
-                editingMessageId ? "rounded-b-lg" : "rounded-lg"
+                "bg-bg-tertiary px-3 py-2 md:px-4 md:py-2.5 flex items-center space-x-2 md:space-x-4 shadow-sm rounded-2xl md:rounded-xl border border-border-primary/50 focus-within:border-color-brand/50 transition-all overflow-hidden",
+                editingMessageId ? "rounded-t-none" : ""
               )}
             >
               {!editingMessageId && (
-                <div className="flex items-center space-x-2">
-                  <button type="button" onClick={handleFileClick} className="text-text-muted hover:text-text-primary transition-colors">
-                    <PlusCircle className="w-6 h-6" />
+                <div className="flex items-center space-x-1 md:space-x-2 flex-shrink-0">
+                  <button 
+                    type="button" 
+                    onMouseDown={startRecording}
+                    onMouseUp={stopRecording}
+                    onMouseLeave={() => isRecording && stopRecording()}
+                    onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
+                    onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
+                    className={cn(
+                      "p-1.5 rounded-full transition-colors shadow-sm",
+                      isRecording ? "bg-red-500 text-white animate-pulse" : "text-text-muted hover:text-text-primary"
+                    )}
+                  >
+                    <Mic className="w-5 h-5" />
                   </button>
                   <button 
                     type="button" 
                     onClick={() => setInput(prev => prev + '/gem')}
-                    className="bg-blue-600 p-1 rounded-full text-white hover:bg-blue-700 transition-colors"
+                    className="bg-blue-600 p-1.5 rounded-full text-white hover:bg-blue-700 transition-colors shadow-sm"
                   >
-                    <Sparkles className="w-4 h-4" />
+                    <Sparkles className="w-4 h-4 md:w-3.5 md:h-3.5" />
                   </button>
                 </div>
               )}
@@ -981,31 +1536,99 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                onChange={(e) => {
+                onChange={async (e) => {
                   if (e.target.files && e.target.files[0]) {
-                    // Optional: handle file selection preview
+                    let file = e.target.files[0];
+                    setIsUploading(true);
+                    
+                    try {
+                      // Convert image to PNG if it's an image
+                      if (file.type.startsWith('image/') && file.type !== 'image/png') {
+                        file = await new Promise<File>((resolve) => {
+                          const img = new Image();
+                          img.onload = () => {
+                            const MAX_WIDTH = 1280;
+                            const MAX_HEIGHT = 1280;
+                            let width = img.width;
+                            let height = img.height;
+
+                            if (width > height) {
+                              if (width > MAX_WIDTH) {
+                                height *= MAX_WIDTH / width;
+                                width = MAX_WIDTH;
+                              }
+                            } else {
+                              if (height > MAX_HEIGHT) {
+                                width *= MAX_HEIGHT / height;
+                                height = MAX_HEIGHT;
+                              }
+                            }
+
+                            const canvas = document.createElement('canvas');
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            if (ctx) {
+                              ctx.drawImage(img, 0, 0, width, height);
+                              canvas.toBlob((blob) => {
+                                if (blob) {
+                                  resolve(new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".png", { type: 'image/png' }));
+                                } else {
+                                  resolve(file);
+                                }
+                              }, 'image/png');
+                            } else {
+                              resolve(file);
+                            }
+                          };
+                          img.onerror = () => resolve(file);
+                          img.src = URL.createObjectURL(file);
+                        });
+                      }
+
+                      await onSendMessage('', file);
+                    } finally {
+                      setIsUploading(false);
+                      e.target.value = ''; // Reset input
+                    }
                   }
                 }}
               />
-              <input
+              <textarea
                 id="chat-input"
                 disabled={currentUser.canChat === false && currentUser.role !== 'admin'}
                 value={editingMessageId ? editContent : input}
-                onChange={editingMessageId ? (e) => setEditContent(e.target.value) : handleInputChange}
+                onChange={editingMessageId ? (e) => {
+                  setEditContent(e.target.value);
+                } : (e) => {
+                  handleInputChange(e as any);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (!e.currentTarget.disabled) handleSubmit(e);
+                  }
+                }}
                 placeholder={currentUser.canChat === false && currentUser.role !== 'admin' ? "Chat desativado para você" : (editingMessageId ? "Editar mensagem..." : `Conversar em #${activeChannel.name}`)}
-                className="flex-1 bg-transparent border-none outline-none text-text-secondary placeholder-text-muted text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 min-w-0 bg-transparent border-none outline-none text-text-secondary placeholder-text-muted text-base md:text-sm disabled:opacity-50 disabled:cursor-not-allowed py-1 resize-none overflow-hidden"
                 autoComplete="off"
+                aria-label={editingMessageId ? "Editar mensagem" : `Conversar em ${activeChannel.name}`}
+                rows={1}
+                onInput={(e) => {
+                  e.currentTarget.style.height = 'auto';
+                  e.currentTarget.style.height = `${e.currentTarget.scrollHeight}px`;
+                }}
               />
-              <div className="flex items-center space-x-3 text-text-muted relative">
+              <div className="flex items-center space-x-2 md:space-x-4 text-text-muted relative flex-shrink-0">
                 {!editingMessageId && (
                   <>
-                    <div className="relative">
+                    <div className="relative hidden sm:block">
                       <button 
                         type="button" 
                         onClick={() => setShowGiftPicker(!showGiftPicker)}
-                        className={cn("hover:text-text-primary transition-colors", showGiftPicker && "text-[#f2bc1b]")}
+                        className={cn("hover:text-text-primary transition-colors p-1", showGiftPicker && "text-[#f2bc1b]")}
                       >
-                        <Gift className="w-5 h-5" />
+                        <Gift className="w-6 h-6 md:w-5 md:h-5" />
                       </button>
                       <AnimatePresence>
                         {showGiftPicker && (
@@ -1013,10 +1636,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             initial={{ opacity: 0, y: 10, scale: 0.9 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-lg shadow-2xl p-4 w-64 z-50"
+                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-2xl shadow-2xl p-4 w-72 z-50"
                           >
-                            <h4 className="text-text-primary font-bold text-sm mb-2">Enviar Presente</h4>
-                            <div className="grid grid-cols-3 gap-2">
+                            <h4 className="text-text-primary font-bold text-sm mb-3">Enviar Presente</h4>
+                            <div className="grid grid-cols-3 gap-3">
                               {['🎁', '💎', '⭐', '🎈', '🍰', '🍫'].map(gift => (
                                 <button 
                                   key={gift}
@@ -1025,7 +1648,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                                     onSendMessage(`Enviou um presente: ${gift}`);
                                     setShowGiftPicker(false);
                                   }}
-                                  className="text-2xl p-2 hover:bg-bg-tertiary rounded transition-colors"
+                                  className="text-3xl p-3 hover:bg-bg-tertiary rounded-xl transition-colors"
                                 >
                                   {gift}
                                 </button>
@@ -1036,13 +1659,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       </AnimatePresence>
                     </div>
 
-                    <div className="relative">
+                    <div className="relative hidden xs:block">
                       <button 
                         type="button" 
                         onClick={() => setShowGifPicker(!showGifPicker)}
-                        className={cn("hover:text-text-primary transition-colors", showGifPicker && "text-[#23a559]")}
+                        className={cn("hover:text-text-primary transition-colors p-1", showGifPicker && "text-[#23a559]")}
                       >
-                        <Sticker className="w-5 h-5" />
+                        <Sticker className="w-6 h-6 md:w-5 md:h-5" />
                       </button>
                       <AnimatePresence>
                         {showGifPicker && (
@@ -1050,10 +1673,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             initial={{ opacity: 0, y: 10, scale: 0.9 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-lg shadow-2xl p-4 w-72 z-50"
+                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-2xl shadow-2xl p-4 w-80 z-50"
                           >
-                            <h4 className="text-text-primary font-bold text-sm mb-2">GIFs Populares</h4>
-                            <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
+                            <h4 className="text-text-primary font-bold text-sm mb-3">GIFs Populares</h4>
+                            <div className="grid grid-cols-2 gap-3 max-h-80 overflow-y-auto pr-1 scrollbar-hide">
                               {[
                                 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJqZ3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKMGpxx6fG/giphy.gif',
                                 'https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJqZ3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4Z3R4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/l0HlHFRbmaZtBRhXG/giphy.gif',
@@ -1061,9 +1684,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                               ].map((url, i) => (
                                 <img 
                                   key={i}
-                                  src={url} 
+                                  src={url || undefined} 
                                   alt="gif" 
-                                  className="w-full h-24 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                                  className="w-full h-28 object-cover rounded-xl cursor-pointer hover:opacity-80 transition-opacity will-change-transform"
+                                  referrerPolicy="no-referrer"
                                   onClick={() => {
                                     onSendMessage(url);
                                     setShowGifPicker(false);
@@ -1079,10 +1703,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     <div className="relative">
                       <button 
                         type="button" 
-                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                        className={cn("hover:text-text-primary transition-colors", showEmojiPicker && "text-[#f2bc1b]")}
+                        onClick={handleFileClick}
+                        className="hover:text-text-primary transition-colors p-1"
                       >
-                        <Smile className="w-5 h-5" />
+                        <Paperclip className="w-6 h-6 md:w-5 md:h-5" />
+                      </button>
+                    </div>
+
+                    <div className="relative">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                        className={cn("hover:text-text-primary transition-colors p-1", showEmojiPicker && "text-[#f2bc1b]")}
+                      >
+                        <Smile className="w-6 h-6 md:w-5 md:h-5" />
                       </button>
                       <AnimatePresence>
                         {showEmojiPicker && (
@@ -1090,9 +1724,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             initial={{ opacity: 0, y: 10, scale: 0.9 }}
                             animate={{ opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: 10, scale: 0.9 }}
-                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-lg shadow-2xl p-4 w-64 z-50"
+                            className="absolute bottom-full right-0 mb-4 bg-bg-overlay border border-border-primary rounded-2xl shadow-2xl p-4 w-72 z-50"
                           >
-                            <div className="grid grid-cols-6 gap-2">
+                            <div className="grid grid-cols-6 gap-3">
                               {['😀', '😂', '😍', '🤔', '😎', '😭', '👍', '🔥', '❤️', '✨', '🚀', '🎉'].map(emoji => (
                                 <button 
                                   key={emoji}
@@ -1102,7 +1736,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                                     else setInput(prev => prev + emoji);
                                     setShowEmojiPicker(false);
                                   }}
-                                  className="text-xl p-1 hover:bg-bg-tertiary rounded transition-colors"
+                                  className="text-2xl p-2 hover:bg-bg-tertiary rounded-xl transition-colors"
                                 >
                                   {emoji}
                                 </button>
@@ -1118,19 +1752,34 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   type="submit" 
                   disabled={isUploading || (editingMessageId ? !editContent.trim() : !input.trim())}
                   className={cn(
-                    "p-1.5 rounded-full transition-all",
+                    "p-2 md:p-1.5 rounded-full transition-all",
                     (editingMessageId ? editContent.trim() : input.trim()) ? "bg-color-brand text-white" : "text-text-muted",
                     isUploading && "bg-bg-tertiary"
                   )}
                 >
                   {isUploading ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-color-brand" />
+                    <Loader2 className="w-5 h-5 md:w-4 md:h-4 animate-spin text-color-brand" />
                   ) : (
-                    <Send className="w-4 h-4" />
+                    <Send className="w-5 h-5 md:w-4 md:h-4" />
                   )}
                 </button>
               </div>
             </form>
+            {typingUsers.length > 0 && (
+              <div className="px-4 py-2 text-xs text-text-muted animate-pulse">
+                {activeChannel?.type === 'private' ? (
+                  <div className="flex items-center space-x-1">
+                    <span className="animate-bounce">.</span>
+                    <span className="animate-bounce delay-75">.</span>
+                    <span className="animate-bounce delay-150">.</span>
+                  </div>
+                ) : (
+                  <div>
+                    {typingUsers.map(uid => allUsers.find(u => u.uid === uid)?.displayName || 'Alguém').join(', ')} está(ão) digitando...
+                  </div>
+                )}
+              </div>
+            )}
             <p className="text-[10px] text-text-muted mt-1 ml-4">
               {editingMessageId ? (
                 <>Pressione <span className="font-bold">Enter</span> para salvar • <span className="font-bold cursor-pointer hover:underline" onClick={handleCancelEdit}>Esc</span> para cancelar</>
@@ -1153,6 +1802,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   setUserContextMenu({ x: e.clientX, y: e.clientY, user });
                 }}
                 onUserClick={(user) => setSelectedStatusUserId(user.uid)}
+                hiddenStatusUsers={hiddenStatusUsers}
+                onToggleStatusVisibility={(userId) => {
+                  setHiddenStatusUsers(prev => {
+                    const next = new Set(prev);
+                    if (next.has(userId)) next.delete(userId);
+                    else next.add(userId);
+                    return next;
+                  });
+                }}
               />
             )}
           </AnimatePresence>
@@ -1162,10 +1820,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       {selectedStatusUserId && (
         <UserStatusView
           userId={selectedStatusUserId}
+          currentUser={currentUser}
           allStatuses={statuses}
           onClose={() => setSelectedStatusUserId(null)}
         />
       )}
+
+      <ConfirmationModal
+        isOpen={showLeaveConfirm}
+        title="Sair do Canal"
+        message={`Tem certeza que deseja sair do canal #${activeChannel?.name}?`}
+        onConfirm={() => {
+          if (activeChannel) {
+            removeChannelMember(activeChannel.id, currentUser.uid);
+            setInput('');
+          }
+          setShowLeaveConfirm(false);
+        }}
+        onCancel={() => setShowLeaveConfirm(false)}
+      />
 
       {/* Multi-select Floating Bar */}
       <AnimatePresence>
@@ -1203,10 +1876,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 onClick={() => {
                   const content = messages
                     .filter(m => selectedMessageIds.includes(m.id))
-                    .map(m => `[${new Date(m.timestamp).toLocaleString()}] ${m.senderName}: ${m.content}`)
+                    .map(m => `[${getTimestampDate(m.timestamp)?.toLocaleString() || ''}] ${m.senderName}: ${m.content}`)
                     .join('\n');
                   navigator.clipboard.writeText(content);
-                  alert("Mensagens copiadas!");
                 }}
                 className="flex items-center space-x-2 text-text-secondary hover:bg-bg-tertiary px-3 py-1.5 rounded-full transition-colors"
               >
@@ -1254,6 +1926,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               </button>
             )}
 
+            {settings.morseCode && (
+              <button 
+                onClick={() => {
+                  playMorseCode(contextMenu.message.content);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors flex items-center space-x-2"
+              >
+                <span className="w-4 h-4 flex items-center justify-center">🔊</span>
+                <span>Ouvir em Morse</span>
+              </button>
+            )}
+
+            {settings.textToSpeech && (
+              <button 
+                onClick={() => {
+                  speakText(contextMenu.message.content, settings.ttsVoiceName);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors flex items-center space-x-2"
+              >
+                <span className="w-4 h-4 flex items-center justify-center">🗣️</span>
+                <span>Ler em Voz Alta</span>
+              </button>
+            )}
+            
             <button 
               onClick={() => handleTranslate(contextMenu.message)}
               className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-color-brand hover:text-white transition-colors group"
@@ -1285,7 +1983,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             {contextMenu.message.senderId !== currentUser.uid && allUsers.find(u => u.uid === contextMenu.message.senderId)?.role !== 'admin' && (
               <button 
                 onClick={() => { 
-                  alert(`Mensagem de ${contextMenu.message.senderName} denunciada.`); 
+                  showToast(`Mensagem de ${contextMenu.message.senderName} denunciada.`, "success"); 
                   setContextMenu(null); 
                 }}
                 className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#f23f42] hover:text-white transition-colors group"
@@ -1308,7 +2006,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             
             <button 
               onClick={() => { 
-                alert(`Notificações de ${activeChannel?.name} silenciadas localmente.`); 
+                showToast(`Notificações de ${activeChannel?.name} silenciadas localmente.`, "info"); 
                 setContextMenu(null); 
               }}
               className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-color-brand hover:text-white transition-colors group"
@@ -1450,7 +2148,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             {userContextMenu.user.uid !== currentUser.uid && (
               <button 
                 onClick={() => { 
-                  alert(`Usuário ${userContextMenu.user.displayName} silenciado localmente.`); 
+                  showToast(`Usuário ${userContextMenu.user.displayName} silenciado localmente.`, "info"); 
                   setUserContextMenu(null); 
                 }}
                 className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
@@ -1462,7 +2160,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             {userContextMenu.user.uid !== currentUser.uid && userContextMenu.user.role !== 'admin' && (
               <button 
                 onClick={() => { 
-                  alert(`Usuário ${userContextMenu.user.displayName} denunciado.`); 
+                  showToast(`Usuário ${userContextMenu.user.displayName} denunciado.`, "success"); 
                   setUserContextMenu(null); 
                 }}
                 className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#f23f42] hover:text-white transition-colors group"
@@ -1565,6 +2263,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           currentUser={currentUser}
           isOpen={!!selectedUserProfile}
           onClose={() => setSelectedUserProfile(null)}
+          channels={channels}
           onSendMessage={() => {
             if (selectedUserProfile.uid !== currentUser.uid) {
               createPrivateChannel(currentUser.uid, selectedUserProfile.uid).then(channel => {
@@ -1584,6 +2283,181 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           isOpen={showAddMembers}
           onClose={() => setShowAddMembers(false)}
         />
+      )}
+
+      {/* Help Modal */}
+      <AnimatePresence>
+        {showHelpModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowHelpModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative bg-bg-primary w-full max-w-md rounded-2xl shadow-2xl border border-border-primary overflow-hidden flex flex-col"
+            >
+              <div className="p-4 border-b border-border-primary flex items-center justify-between bg-bg-secondary">
+                <div className="flex items-center space-x-2">
+                  <div className="p-2 bg-color-brand/20 rounded-lg">
+                    <Sparkles className="w-5 h-5 text-color-brand" />
+                  </div>
+                  <h3 className="text-lg font-bold text-text-primary">Comandos Disponíveis</h3>
+                </div>
+                <button onClick={() => setShowHelpModal(false)} className="p-1 hover:bg-bg-tertiary rounded-full transition-colors">
+                  <X className="w-5 h-5 text-text-muted" />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                <div className="space-y-3">
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/help</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Ajuda</p>
+                      <p className="text-xs text-text-muted">Mostra esta lista de comandos disponíveis.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/mute</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Silenciar</p>
+                      <p className="text-xs text-text-muted">Silencia as notificações do canal atual.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/unmute</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Reativar Som</p>
+                      <p className="text-xs text-text-muted">Reativa as notificações do canal atual.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/pin</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Fixar</p>
+                      <p className="text-xs text-text-muted">Fixa a mensagem mais recente deste canal no topo.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/status</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Status</p>
+                      <p className="text-xs text-text-muted">Abre o menu de status para postar ou ver atualizações.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/shrug</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Shrug</p>
+                      <p className="text-xs text-text-muted">Envia o emoji ¯\_(ツ)_/¯.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/tableflip</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Tableflip</p>
+                      <p className="text-xs text-text-muted">Envia o emoji (╯°□°）╯︵ ┻━┻.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/unflip</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Unflip</p>
+                      <p className="text-xs text-text-muted">Envia o emoji ┬─┬ノ( º _ ºノ).</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/me</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Ação</p>
+                      <p className="text-xs text-text-muted">Envia uma mensagem de ação. Ex: /me está pensando.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/invite</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Convidar</p>
+                      <p className="text-xs text-text-muted">Abre o menu para convidar membros para o canal.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/settings</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Configurações</p>
+                      <p className="text-xs text-text-muted">Abre as configurações do canal atual.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/search</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Buscar</p>
+                      <p className="text-xs text-text-muted">Busca mensagens no canal. Ex: /search oi.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/leave</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Sair</p>
+                      <p className="text-xs text-text-muted">Sai do canal atual (não funciona em DMs).</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/clear</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Limpar</p>
+                      <p className="text-xs text-text-muted">Limpa o campo de digitação.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start space-x-3 p-3 bg-bg-secondary rounded-xl border border-border-primary/50">
+                    <code className="text-color-brand font-bold bg-color-brand/10 px-2 py-1 rounded text-sm shrink-0">/gem</code>
+                    <div>
+                      <p className="text-sm font-bold text-text-primary">Gemini AI</p>
+                      <p className="text-xs text-text-muted">Conversa com a inteligência artificial Gemini. Ex: /gem resuma este chat.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-bg-secondary border-t border-border-primary text-center">
+                <button 
+                  onClick={() => setShowHelpModal(false)}
+                  className="w-full py-2 bg-color-brand hover:bg-color-brand-hover text-white font-bold rounded-xl transition-all shadow-lg shadow-color-brand/20"
+                >
+                  Entendido!
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {lightboxFile && (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4" onClick={() => setLightboxFile(null)}>
+          {lightboxFile.type === 'image' ? (
+            <img src={lightboxFile.url} className="max-w-full max-h-full rounded-lg" alt="preview" />
+          ) : (
+            <video src={lightboxFile.url} controls autoPlay className="max-w-full max-h-full rounded-lg" />
+          )}
+        </div>
       )}
     </div>
   );

@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Shield, Calendar, Mail, Hash, Flag, MessageSquare, MoreVertical, AlertTriangle } from 'lucide-react';
-import { UserProfile } from '@/src/types';
+import { X, Shield, Calendar, Mail, Hash, Flag, MessageSquare, MoreVertical, AlertTriangle, Grid, History, Users, Heart, MessageCircle } from 'lucide-react';
+import { UserProfile, Channel, Status } from '@/src/types';
 import { cn } from '@/src/lib/utils';
-import { reportUser } from '@/src/services/firebaseService';
+import { reportUser, getStatuses } from '@/src/services/firebaseService';
+import { DEFAULT_AVATAR } from '@/src/constants';
+import { UserStatusView } from '../Status/UserStatusView';
 
 interface UserProfileModalProps {
   user: UserProfile;
@@ -11,17 +13,48 @@ interface UserProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSendMessage?: () => void;
+  channels?: Channel[];
 }
 
-export const UserProfileModal: React.FC<UserProfileModalProps> = ({ user, currentUser, isOpen, onClose, onSendMessage }) => {
+const getStatusColor = (status?: string) => {
+  switch (status) {
+    case 'online': return 'bg-[#23a55a]';
+    case 'away': return 'bg-[#f0b232]';
+    case 'dnd': return 'bg-[#f23f43]';
+    case 'invisible': return 'bg-[#80848e]';
+    case 'auto': return 'bg-[#5865f2]';
+    default: return 'bg-[#80848e]';
+  }
+};
+
+export const UserProfileModal: React.FC<UserProfileModalProps> = ({ user, currentUser, isOpen, onClose, onSendMessage, channels = [] }) => {
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [isReporting, setIsReporting] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
+  const [activeTab, setActiveTab] = useState<'about' | 'posts' | 'stories' | 'communities'>('about');
+  const [userStatuses, setUserStatuses] = useState<Status[]>([]);
+  const [viewingStatusId, setViewingStatusId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      const unsubscribe = getStatuses(currentUser, channels, (allStatuses) => {
+        const filtered = allStatuses.filter(s => s.userId === user.uid);
+        setUserStatuses(filtered);
+      });
+      return () => unsubscribe();
+    }
+  }, [isOpen, user.uid, currentUser, channels]);
 
   if (!isOpen) return null;
 
   const createdAt = user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Desconhecido';
+
+  const posts = userStatuses.filter(s => s.mediaType === 'image' || s.mediaType === 'drawing');
+  const stories = userStatuses.filter(s => s.mediaType === 'video' || s.mediaType === 'audio' || s.mediaType === 'text' || s.mediaType === 'link');
+  const mutualCommunities = channels.filter(c => 
+    c.type === 'community' || c.type === 'server' || c.type === 'public'
+  ).filter(c => c.members.includes(user.uid) && c.members.includes(currentUser.uid));
 
   const handleReport = async () => {
     if (!reportReason.trim()) return;
@@ -88,74 +121,234 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ user, curren
                 <img 
                   src={user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=random`} 
                   alt={user.displayName}
-                  className="w-20 h-20 rounded-full object-cover border-[6px] border-[#1e1f22]"
+                  className="w-[85px] h-[85px] rounded-full object-cover border-[6px] border-[#1e1f22] will-change-transform"
+                  referrerPolicy="no-referrer"
                 />
                 <div className={cn(
                   "absolute bottom-1 right-1 w-5 h-5 border-[4px] border-[#1e1f22] rounded-full",
-                  user.status === 'online' ? "bg-[#23a55a]" : 
-                  user.status === 'away' ? "bg-[#f0b232]" : 
-                  user.status === 'dnd' ? "bg-[#f23f43]" : "bg-[#80848e]"
-                )} />
+                  getStatusColor(user.status)
+                )}>
+                  {user.status === 'dnd' && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-2.5 h-1 bg-[#1e1f22] rounded-full" />
+                    </div>
+                  )}
+                  {user.status === 'invisible' && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-2.5 h-2.5 bg-[#1e1f22] rounded-full" />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
           {/* Content */}
           <div className="px-4 pb-4">
-            <div className="bg-[#111214] p-4 rounded-lg mt-2">
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="text-xl font-bold text-white flex items-center">
-                  {user.displayName}
-                  {user.role === 'admin' && (
-                    <Shield className="w-4 h-4 ml-2 text-[#5865f2]" title="Administrador" />
-                  )}
-                </h2>
+            <div className="bg-[#111214] rounded-lg mt-2 overflow-hidden flex flex-col">
+              {/* Profile Info Header */}
+              <div className="p-4 border-b border-white/5">
+                <div className="flex items-center justify-between mb-1">
+                  <h2 className="text-xl font-bold text-white flex items-center">
+                    {user.displayName}
+                    {user.role === 'admin' && (
+                      <Shield className="w-4 h-4 ml-2 text-[#5865f2]" />
+                    )}
+                  </h2>
+                </div>
+                <p className="text-xs text-[#b5bac1] font-medium">{user.username || user.displayName.toLowerCase().replace(/\s/g, '')}</p>
               </div>
-              <p className="text-xs text-[#b5bac1] font-medium mb-4">{user.username || user.displayName.toLowerCase().replace(/\s/g, '')}</p>
-              
-              <div className="space-y-4">
-                {/* Custom Status */}
-                {user.statusMessage && (
-                  <div>
-                    <h3 className="text-[10px] font-bold text-[#b5bac1] uppercase mb-1 tracking-wider">Status Personalizado</h3>
-                    <p className="text-sm text-[#dbdee1]">{user.statusMessage}</p>
+
+              {/* Tabs */}
+              <div className="flex border-b border-white/5">
+                <button 
+                  onClick={() => setActiveTab('about')}
+                  className={cn(
+                    "flex-1 py-3 text-[10px] font-bold uppercase tracking-wider transition-colors",
+                    activeTab === 'about' ? "text-white border-b-2 border-[#5865f2]" : "text-[#b5bac1] hover:text-[#dbdee1]"
+                  )}
+                >
+                  Sobre
+                </button>
+                <button 
+                  onClick={() => setActiveTab('posts')}
+                  className={cn(
+                    "flex-1 py-3 text-[10px] font-bold uppercase tracking-wider transition-colors",
+                    activeTab === 'posts' ? "text-white border-b-2 border-[#5865f2]" : "text-[#b5bac1] hover:text-[#dbdee1]"
+                  )}
+                >
+                  Posts ({posts.length})
+                </button>
+                <button 
+                  onClick={() => setActiveTab('stories')}
+                  className={cn(
+                    "flex-1 py-3 text-[10px] font-bold uppercase tracking-wider transition-colors",
+                    activeTab === 'stories' ? "text-white border-b-2 border-[#5865f2]" : "text-[#b5bac1] hover:text-[#dbdee1]"
+                  )}
+                >
+                  Stories ({stories.length})
+                </button>
+                <button 
+                  onClick={() => setActiveTab('communities')}
+                  className={cn(
+                    "flex-1 py-3 text-[10px] font-bold uppercase tracking-wider transition-colors",
+                    activeTab === 'communities' ? "text-white border-b-2 border-[#5865f2]" : "text-[#b5bac1] hover:text-[#dbdee1]"
+                  )}
+                >
+                  Comuns ({mutualCommunities.length})
+                </button>
+              </div>
+
+              {/* Tab Content */}
+              <div className="p-4 min-h-[200px] max-h-[300px] overflow-y-auto custom-scrollbar">
+                {activeTab === 'about' && (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-[10px] font-bold text-[#b5bac1] uppercase mb-1 tracking-wider">Sobre Mim</h3>
+                      <p className="text-sm text-[#dbdee1]">
+                        {user.about || "Este usuário ainda não definiu uma biografia."}
+                      </p>
+                    </div>
+                    <div>
+                      <h3 className="text-[10px] font-bold text-[#b5bac1] uppercase mb-1 tracking-wider">Membro Desde</h3>
+                      <div className="flex items-center text-sm text-[#dbdee1]">
+                        <Calendar className="w-3.5 h-3.5 mr-2 text-[#b5bac1]" />
+                        {createdAt}
+                      </div>
+                    </div>
+                    {onSendMessage && user.uid !== currentUser.uid && (
+                      <div className="pt-2">
+                        <button 
+                          onClick={onSendMessage}
+                          className="w-full bg-[#5865f2] text-white text-sm font-medium py-2 rounded hover:bg-[#4752c4] transition-colors flex items-center justify-center"
+                        >
+                          <MessageSquare className="w-4 h-4 mr-2" />
+                          Enviar Mensagem
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                <div className="h-px bg-white/5" />
-
-                {/* About Me */}
-                <div>
-                  <h3 className="text-[10px] font-bold text-[#b5bac1] uppercase mb-1 tracking-wider">Sobre Mim</h3>
-                  <p className="text-sm text-[#dbdee1]">
-                    {user.bio || "Este usuário ainda não definiu uma biografia."}
-                  </p>
-                </div>
-
-                {/* Member Since */}
-                <div>
-                  <h3 className="text-[10px] font-bold text-[#b5bac1] uppercase mb-1 tracking-wider">Membro Desde</h3>
-                  <div className="flex items-center text-sm text-[#dbdee1]">
-                    <Calendar className="w-3.5 h-3.5 mr-2 text-[#b5bac1]" />
-                    {createdAt}
+                {activeTab === 'posts' && (
+                  <div className="grid grid-cols-3 gap-1">
+                    {posts.length > 0 ? (
+                      posts.map(post => (
+                        <div 
+                          key={post.id} 
+                          onClick={() => setViewingStatusId(post.id)}
+                          className="aspect-square relative group cursor-pointer overflow-hidden rounded-sm"
+                        >
+                          <img 
+                            src={post.mediaUrl} 
+                            alt="Post" 
+                            className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-3">
+                            <div className="flex items-center text-white text-[10px] font-bold">
+                              <Heart className="w-3 h-3 mr-1 fill-white" />
+                              {post.likes.length}
+                            </div>
+                            <div className="flex items-center text-white text-[10px] font-bold">
+                              <MessageCircle className="w-3 h-3 mr-1 fill-white" />
+                              {post.comments.length}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="col-span-3 flex flex-col items-center justify-center py-10 text-center">
+                        <Grid className="w-8 h-8 text-[#4f545c] mb-2" />
+                        <p className="text-xs text-[#b5bac1]">Nenhum post ainda.</p>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
 
-                {/* Quick Message Input */}
-                {onSendMessage && user.uid !== currentUser.uid && (
-                  <div className="pt-2">
-                    <button 
-                      onClick={onSendMessage}
-                      className="w-full bg-[#5865f2] text-white text-sm font-medium py-2 rounded hover:bg-[#4752c4] transition-colors flex items-center justify-center"
-                    >
-                      <MessageSquare className="w-4 h-4 mr-2" />
-                      Enviar Mensagem
-                    </button>
+                {activeTab === 'stories' && (
+                  <div className="space-y-2">
+                    {stories.length > 0 ? (
+                      stories.map(story => (
+                        <div 
+                          key={story.id} 
+                          onClick={() => setViewingStatusId(story.id)}
+                          className="flex items-center p-2 bg-white/5 rounded-md hover:bg-white/10 transition-colors cursor-pointer"
+                        >
+                          <div className="w-10 h-10 rounded-full border-2 border-[#5865f2] p-0.5 mr-3 shrink-0">
+                            {story.mediaType === 'text' ? (
+                              <div className="w-full h-full rounded-full bg-gradient-to-br from-[#5865f2] to-[#7289da] flex items-center justify-center text-[8px] text-white font-bold overflow-hidden">
+                                {story.mediaUrl.substring(0, 10)}...
+                              </div>
+                            ) : (
+                              <img 
+                                src={story.mediaUrl} 
+                                className="w-full h-full rounded-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white font-medium truncate">{story.caption || (story.mediaType === 'text' ? story.mediaUrl : 'Status')}</p>
+                            <p className="text-[10px] text-[#b5bac1]">{new Date(story.timestamp).toLocaleString()}</p>
+                          </div>
+                          <div className="flex items-center space-x-2 text-[#b5bac1]">
+                            <div className="flex items-center text-[10px]">
+                              <Heart className="w-3 h-3 mr-0.5" />
+                              {story.likes.length}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <History className="w-8 h-8 text-[#4f545c] mb-2" />
+                        <p className="text-xs text-[#b5bac1]">Nenhum story ainda.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'communities' && (
+                  <div className="space-y-2">
+                    {mutualCommunities.length > 0 ? (
+                      mutualCommunities.map(community => (
+                        <div key={community.id} className="flex items-center p-2 bg-white/5 rounded-md hover:bg-white/10 transition-colors">
+                          <div className="w-10 h-10 rounded-lg bg-[#313338] flex items-center justify-center mr-3 shrink-0 overflow-hidden">
+                            {community.background?.value ? (
+                              <img src={community.background.value} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <Hash className="w-5 h-5 text-[#b5bac1]" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-white font-bold truncate">{community.name}</p>
+                            <p className="text-[10px] text-[#b5bac1]">{community.members.length} membros</p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <Users className="w-8 h-8 text-[#4f545c] mb-2" />
+                        <p className="text-xs text-[#b5bac1]">Nenhuma comunidade em comum.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           </div>
+
+          {/* Status Viewer Overlay */}
+          {viewingStatusId && (
+            <UserStatusView 
+              userId={user.uid}
+              currentUser={currentUser}
+              allStatuses={activeTab === 'posts' ? posts : stories}
+              initialStatusId={viewingStatusId}
+              onClose={() => setViewingStatusId(null)}
+            />
+          )}
 
           {/* Report Modal Overlay */}
           <AnimatePresence>

@@ -8,7 +8,11 @@ import { Login } from './components/Auth/Login';
 import { SignUp } from './components/Auth/SignUp';
 import { ForgotPassword } from './components/Auth/ForgotPassword';
 import { ChatLayout } from './components/Chat/ChatLayout';
+import { Onboarding } from './components/Onboarding';
 import { IncomingCallModal } from './components/Chat/IncomingCallModal';
+import { AdhdReminders } from './components/AdhdReminders';
+import { useAccessibility } from './contexts/AccessibilityContext';
+import { useToast } from './context/ToastContext';
 import { 
   signUp, 
   signIn, 
@@ -42,8 +46,34 @@ import { ConfirmationResult } from 'firebase/auth';
 type View = 'login' | 'signup' | 'forgot-password' | 'chat';
 
 export default function App() {
+  const { settings } = useAccessibility();
+  const { showToast } = useToast();
   const [view, setView] = useState<View>('login');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    // Only show onboarding for users who created their account in the last 10 minutes
+    // and haven't completed it yet (checked via Firestore and localStorage)
+    const isNewAccount = currentUser && (Date.now() - currentUser.createdAt < 600000);
+    if (currentUser && !currentUser.onboardingCompleted && !localStorage.getItem('onboardingCompleted') && isNewAccount) {
+      setShowOnboarding(true);
+    }
+  }, [currentUser]);
+
+  const handleOnboardingCallback = async (data: any) => {
+    if (data.status === 'finished' || data.status === 'skipped') {
+      setShowOnboarding(false);
+      localStorage.setItem('onboardingCompleted', 'true');
+      if (currentUser) {
+        try {
+          await setDoc(doc(db, USERS_COLLECTION, currentUser.uid), { onboardingCompleted: true }, { merge: true });
+        } catch (error) {
+          console.error("Error updating onboarding status:", error);
+        }
+      }
+    }
+  };
   const [isLoading, setIsLoading] = useState(true);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isResetSuccess, setIsResetSuccess] = useState(false);
@@ -71,6 +101,24 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('theme', theme);
   }, [theme]);
+
+  // Zoom persistence
+  const [zoom, setZoom] = useState(() => {
+    const saved = localStorage.getItem('zoom');
+    return saved ? parseInt(saved) : 100;
+  });
+
+  // Keep localStorage in sync with zoom state
+  useEffect(() => {
+    localStorage.setItem('zoom', zoom.toString());
+  }, [zoom]);
+
+  // Sync zoom from currentUser
+  useEffect(() => {
+    if (currentUser?.zoom) {
+      setZoom(currentUser.zoom);
+    }
+  }, [currentUser?.zoom]);
 
   // Auth Listener
   useEffect(() => {
@@ -207,10 +255,6 @@ export default function App() {
   useEffect(() => {
     if (!currentUser || channels.length === 0) return;
 
-    if (Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-
     const mountTime = Date.now();
 
     const unsubscribes = channels.map(channel => {
@@ -238,13 +282,11 @@ export default function App() {
                 // Add to unread set
                 setUnreadChannels(prev => new Set(prev).add(channel.id));
 
-                // Browser notification
-                if (Notification.permission === 'granted') {
-                  new Notification(`Nova mensagem em ${channel.type === 'private' ? 'Mensagem Direta' : channel.name}`, {
-                    body: `${msg.senderName}: ${msg.content}`,
-                    icon: msg.senderPhoto || DEFAULT_AVATAR
-                  });
-                }
+                // Internal toast notification instead of browser notification
+                showToast(
+                  `Nova mensagem em ${channel.type === 'private' ? 'Mensagem Direta' : channel.name}: ${msg.content}`,
+                  'info'
+                );
               }
             }
           }
@@ -257,7 +299,7 @@ export default function App() {
     return () => {
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [channels, currentUser, activeChannel]);
+  }, [channels, currentUser, activeChannel, showToast]);
 
   // Users Listener
   useEffect(() => {
@@ -265,11 +307,19 @@ export default function App() {
       const q = query(collection(db, USERS_COLLECTION));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
-        setAllUsers(usersData.filter(u => u.uid !== currentUser.uid));
+        
+        // Filter users: hide private accounts unless they share a channel with the current user
+        const conversingUserIds = new Set(channels.flatMap(c => c.members || []));
+        
+        setAllUsers(usersData.filter(u => {
+          if (u.uid === currentUser.uid) return false;
+          if (u.isPrivate && !conversingUserIds.has(u.uid)) return false;
+          return true;
+        }));
       });
       return () => unsubscribe();
     }
-  }, [currentUser, view]);
+  }, [currentUser, view, channels]);
 
   // Incoming Calls Listener
   useEffect(() => {
@@ -505,8 +555,10 @@ export default function App() {
         let fileUrl: string | undefined;
         let fileType: string | undefined;
         if (file) {
+          console.log("Sending file:", file.name, file.type, file.size);
           fileUrl = await uploadFile(file, `messages/${activeChannel.id}/${Date.now()}_${file.name}`);
           fileType = file.type;
+          console.log("File uploaded:", fileUrl, fileType);
         }
         // Replace newlines with <br/> or ensure whitespace is preserved in CSS
         await sendMessage(activeChannel.id, currentUser, content, fileUrl, fileType);
@@ -643,6 +695,14 @@ export default function App() {
 
   const themeClass = theme === 'light' ? 'light' : '';
 
+  useEffect(() => {
+    if (theme === 'light') {
+      document.documentElement.classList.add('light');
+    } else {
+      document.documentElement.classList.remove('light');
+    }
+  }, [theme]);
+
   if (isLoading && !currentUser) {
     return (
       <div className="min-h-screen bg-bg-primary flex items-center justify-center">
@@ -652,7 +712,18 @@ export default function App() {
   }
 
   return (
-    <div style={customStyles} className={`min-h-screen ${themeClass} transition-colors duration-300`}>
+    <div style={{ ...customStyles, zoom: `${zoom}%`, minHeight: `${10000 / zoom}vh` }} className={`min-h-screen ${themeClass} transition-colors duration-300`}>
+      <AdhdReminders />
+      {settings.autismTheme && (
+        <div className="fixed inset-0 z-[9999] pointer-events-none opacity-20 overflow-hidden">
+          <img 
+            src="https://estimated-peach-vlbu9z5ryi.edgeone.app/copilot_image_1776130502581.jpeg" 
+            alt="Autism Theme Overlay" 
+            className="w-full h-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+      )}
       {currentBg?.type && (
         <div 
           className="fixed inset-0 z-[-1] overflow-hidden pointer-events-none"
@@ -668,11 +739,11 @@ export default function App() {
                 playsInline 
                 className="w-full h-full object-cover"
               >
-                <source src={currentBg.value} />
+                <source src={currentBg.value || undefined} />
               </video>
             ) : (
               <img 
-                src={currentBg.value} 
+                src={currentBg.value || undefined} 
                 alt="background" 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
@@ -716,27 +787,30 @@ export default function App() {
         />
       )}
       {view === 'chat' && currentUser && (
-        <ChatLayout 
-          currentUser={currentUser}
-          channels={channels}
-          activeChannel={activeChannel}
-          unreadChannels={unreadChannels}
-          onChannelSelect={setActiveChannel}
-          onLogout={logOut}
-          onSendMessage={handleSendMessage}
-          messages={messages}
-          isLoadingMessages={isLoadingMessages}
-          allUsers={allUsers}
-          typingUsers={typingUsers}
-          onStartTyping={handleStartTyping}
-          onStopTyping={handleStopTyping}
-          onSelectUser={handleSelectUser}
-          activeCall={activeCall}
-          onStartCall={handleStartCall}
-          onEndCall={handleEndCall}
-          onClearUnreads={handleClearUnreads}
-          onMuteChannels={handleMuteChannels}
-        />
+        <>
+          <Onboarding run={showOnboarding} onCallback={handleOnboardingCallback} />
+          <ChatLayout 
+            currentUser={currentUser}
+            channels={channels}
+            activeChannel={activeChannel}
+            unreadChannels={unreadChannels}
+            onChannelSelect={setActiveChannel}
+            onLogout={logOut}
+            onSendMessage={handleSendMessage}
+            messages={messages}
+            isLoadingMessages={isLoadingMessages}
+            allUsers={allUsers}
+            typingUsers={typingUsers}
+            onStartTyping={handleStartTyping}
+            onStopTyping={handleStopTyping}
+            onSelectUser={handleSelectUser}
+            activeCall={activeCall}
+            onStartCall={handleStartCall}
+            onEndCall={handleEndCall}
+            onClearUnreads={handleClearUnreads}
+            onMuteChannels={handleMuteChannels}
+          />
+        </>
       )}
       
       <IncomingCallModal 

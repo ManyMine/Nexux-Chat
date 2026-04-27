@@ -18,6 +18,28 @@ interface ChannelHeaderProps {
   isMultiSelectMode: boolean;
 }
 
+const getStatusColor = (status?: string) => {
+  switch (status) {
+    case 'online': return 'bg-color-success';
+    case 'away': return 'bg-color-warning';
+    case 'dnd': return 'bg-color-danger';
+    case 'invisible': return 'bg-text-muted';
+    case 'auto': return 'bg-color-brand';
+    default: return 'bg-text-muted';
+  }
+};
+
+const getStatusText = (status?: string) => {
+  switch (status) {
+    case 'online': return 'Online';
+    case 'away': return 'Ausente';
+    case 'dnd': return 'Não incomodar';
+    case 'invisible': return 'Invisível';
+    case 'auto': return 'Automático';
+    default: return 'Offline';
+  }
+};
+
 export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
   channel,
   otherUser,
@@ -49,9 +71,19 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
             {otherUser && (
               <div className={cn(
                 "absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-bg-primary rounded-full",
-                otherUser.status === 'online' ? "bg-color-success" : 
-                otherUser.status === 'away' ? "bg-color-warning" : "bg-text-muted"
-              )} />
+                getStatusColor(otherUser.status)
+              )}>
+                {otherUser.status === 'dnd' && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-1.5 h-0.5 bg-bg-primary rounded-full" />
+                  </div>
+                )}
+                {otherUser.status === 'invisible' && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 bg-bg-primary rounded-full" />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         ) : channel.type === 'private_group' ? (
@@ -63,7 +95,7 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
           <span>{channel.type === 'private' && otherUser ? otherUser.displayName : channel.name}</span>
           {channel.type === 'private' && otherUser && (
             <span className="text-[10px] uppercase font-bold text-text-muted px-1.5 py-0.5 rounded bg-bg-tertiary">
-              {otherUser.status || 'offline'}
+              {getStatusText(otherUser.status)}
             </span>
           )}
         </h2>

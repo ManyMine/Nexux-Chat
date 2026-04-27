@@ -42,10 +42,83 @@ import {
 } from 'firebase/storage';
 import { auth, db, storage } from '../firebase';
 import { UserProfile, Channel, Message, Call, Status, StatusComment } from '../types';
-import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, CALLS_COLLECTION, STATUSES_COLLECTION, REPORTS_COLLECTION } from '../constants';
+import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, CALLS_COLLECTION, STATUSES_COLLECTION, STATUS_PRESENCE_COLLECTION, DRAFTS_COLLECTION, REPORTS_COLLECTION, NOTIFICATIONS_COLLECTION } from '../constants';
 import { saveStatus } from './db';
 export { deleteField };
 
+// --- Presence ---
+
+export const updateStatusPresence = async (userId: string, userName: string, userPhoto: string | null) => {
+  try {
+    await setDoc(doc(db, STATUS_PRESENCE_COLLECTION, userId), {
+      userId,
+      userName,
+      userPhoto,
+      lastSeen: Date.now()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, STATUS_PRESENCE_COLLECTION);
+    throw error;
+  }
+};
+
+export const removeStatusPresence = async (userId: string) => {
+  try {
+    await deleteDoc(doc(db, STATUS_PRESENCE_COLLECTION, userId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, STATUS_PRESENCE_COLLECTION);
+    throw error;
+  }
+};
+
+export const listenForStatusPresence = (callback: (presence: any[]) => void) => {
+  const q = query(collection(db, STATUS_PRESENCE_COLLECTION), where('lastSeen', '>', Date.now() - 30000));
+  return onSnapshot(q, (snapshot) => {
+    const presence = snapshot.docs.map(doc => doc.data());
+    callback(presence);
+  });
+};
+
+// --- Drafts ---
+
+export const saveDraft = async (userId: string, channelId: string, content: string) => {
+  try {
+    const draftId = `${userId}_${channelId}`;
+    await setDoc(doc(db, DRAFTS_COLLECTION, draftId), {
+      userId,
+      channelId,
+      content,
+      updatedAt: Date.now()
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, DRAFTS_COLLECTION);
+    throw error;
+  }
+};
+
+export const getDraft = async (userId: string, channelId: string) => {
+  try {
+    const draftId = `${userId}_${channelId}`;
+    const docSnap = await getDoc(doc(db, DRAFTS_COLLECTION, draftId));
+    if (docSnap.exists()) {
+      return docSnap.data();
+    }
+    return null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, DRAFTS_COLLECTION);
+    throw error;
+  }
+};
+
+export const deleteDraft = async (userId: string, channelId: string) => {
+  try {
+    const draftId = `${userId}_${channelId}`;
+    await deleteDoc(doc(db, DRAFTS_COLLECTION, draftId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, DRAFTS_COLLECTION);
+    throw error;
+  }
+};
 export const uploadFile = async (file: File, path: string) => {
   const storageRef = ref(storage, path);
   const snapshot = await uploadBytes(storageRef, file);
@@ -627,7 +700,7 @@ export const createPrivateChannel = async (user1Id: string, user2Id: string) => 
   }
 };
 
-export const createChannel = async (name: string, type: 'public' | 'private' | 'category' | 'private_group', creatorId: string, parentId?: string) => {
+export const createChannel = async (name: string, type: 'public' | 'private' | 'category' | 'private_group' | 'community' | 'project' | 'server' | 'topic', creatorId: string, parentId?: string) => {
   const channelData: Omit<Channel, 'id'> = {
     name,
     type,
@@ -726,25 +799,29 @@ export const getMessages = (channelId: string, callback: (messages: Message[]) =
   );
   
   return onSnapshot(q, (snapshot) => {
-    const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+    const messages = snapshot.docs.map(doc => {
+      const data = doc.data() as Message;
+      return { id: doc.id, ...data };
+    });
     callback(messages);
   }, (error) => {
     handleFirestoreError(error, OperationType.LIST, `${CHANNELS_COLLECTION}/${channelId}/${MESSAGES_COLLECTION}`);
   });
 };
 
-export const sendMessage = async (channelId: string, sender: UserProfile, content: string, fileUrl?: string, fileType?: string) => {
+export const sendMessage = async (channelId: string, sender: UserProfile, content: string, fileUrl?: string, fileType?: string, statusReply?: any) => {
   const messageData: any = {
     channelId,
     senderId: sender.uid,
     senderName: sender.displayName,
     senderPhoto: sender.photoURL || null,
-    content,
+    content: content,
     timestamp: Date.now(),
   };
 
   if (fileUrl) messageData.fileUrl = fileUrl;
   if (fileType) messageData.fileType = fileType;
+  if (statusReply) messageData.statusReply = statusReply;
   
   try {
     await addDoc(collection(db, CHANNELS_COLLECTION, channelId, MESSAGES_COLLECTION), messageData);
@@ -759,6 +836,34 @@ export const deleteMessage = async (channelId: string, messageId: string) => {
     await deleteDoc(doc(db, CHANNELS_COLLECTION, channelId, MESSAGES_COLLECTION, messageId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, `${CHANNELS_COLLECTION}/${channelId}/${MESSAGES_COLLECTION}/${messageId}`);
+    throw error;
+  }
+};
+
+export const toggleReaction = async (channelId: string, messageId: string, emoji: string, userId: string) => {
+  try {
+    const msgRef = doc(db, CHANNELS_COLLECTION, channelId, MESSAGES_COLLECTION, messageId);
+    const msgSnap = await getDoc(msgRef);
+    if (!msgSnap.exists()) return;
+
+    const data = msgSnap.data();
+    const reactions = data.reactions || {};
+    const usersForEmoji = reactions[emoji] || [];
+
+    if (usersForEmoji.includes(userId)) {
+      // Remove reaction
+      reactions[emoji] = usersForEmoji.filter((id: string) => id !== userId);
+      if (reactions[emoji].length === 0) {
+        delete reactions[emoji];
+      }
+    } else {
+      // Add reaction
+      reactions[emoji] = [...usersForEmoji, userId];
+    }
+
+    await updateDoc(msgRef, { reactions });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CHANNELS_COLLECTION}/${channelId}/${MESSAGES_COLLECTION}/${messageId}`);
     throw error;
   }
 };
@@ -814,17 +919,31 @@ export const viewStatus = async (statusId: string, userId: string) => {
   }
 };
 
-export const createStatus = async (user: UserProfile, mediaUrl: string, mediaType: 'video' | 'image' | 'audio' | 'drawing' | 'link', caption?: string) => {
+export const createStatus = async (user: UserProfile, mediaUrl: string, mediaType: 'video' | 'image' | 'audio' | 'drawing' | 'link' | 'text', caption?: string, privacy?: 'all' | 'contacts' | 'private') => {
+  const duration = user.statusSettings?.duration || '24h';
+  let expiresAt: number;
+
+  if (duration === 'never') {
+    expiresAt = -1;
+  } else {
+    const hours = parseInt(duration);
+    expiresAt = Date.now() + (hours * 60 * 60 * 1000);
+  }
+
   const statusData: Omit<Status, 'id'> = {
     userId: user.uid,
-    userName: user.displayName,
+    userName: user.displayName || (user.email ? user.email.split('@')[0] : 'User'),
     userPhoto: user.photoURL || null,
     mediaUrl,
     mediaType,
     caption: caption || null,
     timestamp: Date.now(),
+    expiresAt,
     likes: [],
-    comments: []
+    comments: [],
+    allowReplies: user.statusSettings?.allowReplies !== false,
+    allowStatusChat: user.statusSettings?.allowStatusChat !== false,
+    privacy: privacy || user.statusSettings?.privacy || 'all'
   };
 
   if (!navigator.onLine) {
@@ -834,23 +953,45 @@ export const createStatus = async (user: UserProfile, mediaUrl: string, mediaTyp
   }
 
   try {
+    console.log("Creating status for user:", user.uid, "with data:", statusData);
     const docRef = await addDoc(collection(db, STATUSES_COLLECTION), statusData);
+    
+    // Create notification
+    console.log("Creating notification for status:", docRef.id);
+    await addDoc(collection(db, NOTIFICATIONS_COLLECTION), {
+      type: 'new_status',
+      userId: user.uid,
+      userName: user.displayName || (user.email ? user.email.split('@')[0] : 'User'),
+      statusId: docRef.id,
+      timestamp: Date.now(),
+      readBy: []
+    });
+
     return { id: docRef.id, ...statusData } as Status;
   } catch (error) {
+    console.error("Error creating status:", error);
     handleFirestoreError(error, OperationType.CREATE, STATUSES_COLLECTION);
     throw error;
   }
 };
 
-export const getStatuses = (callback: (statuses: Status[]) => void) => {
-  // Only show statuses from the last 24 hours
-  const twentyFourHoursAgo = Date.now() - (24 * 60 * 60 * 1000);
+export const getStatuses = (currentUser: UserProfile, channels: Channel[], callback: (statuses: Status[]) => void) => {
   const q = query(
     collection(db, STATUSES_COLLECTION),
     orderBy('timestamp', 'desc')
   );
 
+  // Get contact IDs (users who share a private channel with the current user)
+  const contactIds = new Set(
+    channels
+      .filter(c => c.type === 'private' || c.type === 'private_group')
+      .flatMap(c => c.members)
+      .filter(id => id !== currentUser.uid)
+  );
+
   return onSnapshot(q, (snapshot) => {
+    console.log("Statuses snapshot received, docs count:", snapshot.docs.length);
+    const now = Date.now();
     const statuses = snapshot.docs.map(doc => {
       const data = doc.data();
       return { 
@@ -859,11 +1000,53 @@ export const getStatuses = (callback: (statuses: Status[]) => void) => {
         mediaUrl: data.mediaUrl || data.videoUrl, // Backward compatibility
         mediaType: data.mediaType || 'video'      // Backward compatibility
       } as Status;
-    }).filter(status => status.timestamp > twentyFourHoursAgo);
+    }).filter(status => {
+      // Expiration check
+      if (status.expiresAt) {
+        if (status.expiresAt !== -1 && status.expiresAt <= now) return false;
+      } else {
+        const twentyFourHoursAgo = now - (24 * 60 * 60 * 1000);
+        if (status.timestamp <= twentyFourHoursAgo) return false;
+      }
+
+      // Privacy check
+      if (status.userId === currentUser.uid) return true; // Always show own statuses
+      
+      const privacy = status.privacy || 'all';
+      if (privacy === 'all') return true;
+      if (privacy === 'contacts') return contactIds.has(status.userId);
+      if (privacy === 'private') return false; // Only owner can see private statuses
+
+      return false;
+    });
+    console.log("Filtered statuses:", statuses.length);
     callback(statuses);
   }, (error) => {
+    console.error("Error in getStatuses snapshot:", error);
     handleFirestoreError(error, OperationType.LIST, STATUSES_COLLECTION);
   });
+};
+
+export const deleteStatus = async (statusId: string) => {
+  try {
+    await deleteDoc(doc(db, STATUSES_COLLECTION, statusId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `${STATUSES_COLLECTION}/${statusId}`);
+    throw error;
+  }
+};
+
+export const deleteMultipleStatuses = async (statusIds: string[]) => {
+  try {
+    const batch = writeBatch(db);
+    statusIds.forEach(id => {
+      batch.delete(doc(db, STATUSES_COLLECTION, id));
+    });
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, STATUSES_COLLECTION);
+    throw error;
+  }
 };
 
 export const likeStatus = async (statusId: string, userId: string, isLiked: boolean) => {
@@ -884,14 +1067,15 @@ export const likeStatus = async (statusId: string, userId: string, isLiked: bool
   }
 };
 
-export const commentStatus = async (statusId: string, user: UserProfile, content: string) => {
+export const commentStatus = async (statusId: string, user: UserProfile, content: string, parentId?: string) => {
   const comment: StatusComment = {
     id: Math.random().toString(36).substring(2, 9),
     userId: user.uid,
-    userName: user.displayName,
+    userName: user.displayName || (user.email ? user.email.split('@')[0] : 'User'),
     userPhoto: user.photoURL || undefined,
     content,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    parentId
   };
 
   try {
@@ -1041,6 +1225,21 @@ export const updateReportStatus = async (reportId: string, status: 'pending' | '
     await updateDoc(doc(db, REPORTS_COLLECTION, reportId), { status });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, REPORTS_COLLECTION);
+    throw error;
+  }
+};
+
+export const getUserStatusHistory = async (userId: string) => {
+  try {
+    const q = query(
+      collection(db, STATUSES_COLLECTION),
+      where('userId', '==', userId),
+      orderBy('timestamp', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Status));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, STATUSES_COLLECTION);
     throw error;
   }
 };

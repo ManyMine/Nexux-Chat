@@ -46,6 +46,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
       setMessage({ type: 'error', text: 'Você não pode bloquear a si mesmo.' });
       return;
     }
+
+    if (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com') {
+      setMessage({ type: 'error', text: 'Você não tem permissão para bloquear outro administrador.' });
+      return;
+    }
     
     try {
       setActionLoading(`block-${user.uid}`);
@@ -64,6 +69,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const handleDeleteUser = async (user: UserProfile) => {
     if (user.uid === currentUser.uid) {
       setMessage({ type: 'error', text: 'Você não pode excluir a si mesmo.' });
+      return;
+    }
+
+    if (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com') {
+      setMessage({ type: 'error', text: 'Você não tem permissão para excluir outro administrador.' });
       return;
     }
 
@@ -90,6 +100,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const handleToggleRole = async (user: UserProfile) => {
     if (user.uid === currentUser.uid) {
       setMessage({ type: 'error', text: 'Você não pode alterar seu próprio cargo.' });
+      return;
+    }
+
+    if (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com') {
+      setMessage({ type: 'error', text: 'Você não tem permissão para alterar o cargo de outro administrador.' });
       return;
     }
 
@@ -149,12 +164,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
         <div className="p-4 border-b border-border-primary space-y-4 bg-bg-tertiary/50">
           <div className="flex justify-between items-center">
             <h3 className="font-bold text-text-primary">Usuários Cadastrados ({users.length})</h3>
-            <button 
-              onClick={fetchUsers}
-              className="text-xs bg-[#5865f2] hover:bg-[#4752c4] text-white px-3 py-1.5 rounded transition-colors"
-            >
-              Atualizar Lista
-            </button>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={fetchUsers}
+                className="text-xs bg-[#5865f2] hover:bg-[#4752c4] text-white px-3 py-1.5 rounded transition-colors"
+              >
+                Atualizar Lista
+              </button>
+              {currentUser.email === 'belepuff@gmail.com' && (
+                <button 
+                  onClick={() => setMessage({ type: 'success', text: 'Funcionalidade de Adicionar Mods disponível.' })}
+                  className="text-xs bg-[#f23f42] hover:bg-[#d63538] text-white px-3 py-1.5 rounded transition-colors"
+                >
+                  Adicionar Mods
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="relative">
@@ -215,14 +240,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-text-muted">{user.email || 'Sem e-mail'}</span>
+                    <span className="text-xs text-text-muted">
+                      {user.email === 'belepuff@gmail.com' && currentUser.email !== 'belepuff@gmail.com' 
+                        ? 'E-mail Oculto' 
+                        : (user.email || 'Sem e-mail')}
+                    </span>
                   </div>
                 </div>
 
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => handleSendRecovery(user)}
-                    disabled={actionLoading !== null || !user.email}
+                    disabled={actionLoading !== null || !user.email || (user.email === 'belepuff@gmail.com' && currentUser.email !== 'belepuff@gmail.com')}
                     className="p-2 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded transition-colors disabled:opacity-50"
                     title="Enviar e-mail de recuperação"
                   >
@@ -231,7 +260,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   
                   <button
                     onClick={() => handleToggleRole(user)}
-                    disabled={actionLoading !== null || user.uid === currentUser.uid}
+                    disabled={actionLoading !== null || user.uid === currentUser.uid || (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com')}
                     className={cn(
                       "p-2 rounded transition-colors disabled:opacity-50",
                       user.role === 'admin' 
@@ -245,7 +274,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
                   <button
                     onClick={() => handleToggleBlock(user)}
-                    disabled={actionLoading !== null || user.uid === currentUser.uid}
+                    disabled={actionLoading !== null || user.uid === currentUser.uid || (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com')}
                     className={cn(
                       "p-2 rounded transition-colors disabled:opacity-50",
                       user.isBlocked 
@@ -259,7 +288,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
 
                   <button
                     onClick={() => handleDeleteUser(user)}
-                    disabled={actionLoading !== null || user.uid === currentUser.uid}
+                    disabled={actionLoading !== null || user.uid === currentUser.uid || (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com')}
                     className="p-2 text-text-muted hover:text-[#f23f42] hover:bg-[#f23f42]/10 rounded transition-colors disabled:opacity-50"
                     title="Excluir Usuário"
                   >
@@ -304,7 +333,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                     />
                     <div>
                       <p className="font-bold text-text-primary">{userToDelete.displayName}</p>
-                      <p className="text-xs text-text-muted">{userToDelete.email || userToDelete.username}</p>
+                      <p className="text-xs text-text-muted">
+                        {userToDelete.email === 'belepuff@gmail.com' && currentUser.email !== 'belepuff@gmail.com' 
+                          ? 'E-mail Oculto' 
+                          : (userToDelete.email || userToDelete.username)}
+                      </p>
                     </div>
                   </div>
                 </div>

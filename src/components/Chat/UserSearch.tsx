@@ -21,7 +21,7 @@ export const UserSearch: React.FC<UserSearchProps> = ({
   const [search, setSearch] = useState('');
 
   const filteredUsers = allUsers.filter(user => 
-    !user.isPrivate && user.displayName.toLowerCase().includes(search.toLowerCase())
+    user.displayName.toLowerCase().includes(search.toLowerCase())
   );
 
   return (

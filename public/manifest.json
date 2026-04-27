@@ -1,0 +1,18 @@
+{
+  "name": "Noton Nexus",
+  "short_name": "Nexus",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1e1f22",
+  "theme_color": "#5865f2",
+  "description": "A melhor plataforma de comunicação para comunidades e projetos.",
+  "icons": [
+    {
+      "src": "https://img.sanishtech.com/u/47612354b3429905a0e4183c638bcdfb.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

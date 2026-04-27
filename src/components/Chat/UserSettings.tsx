@@ -1,13 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, User, Shield, Palette, Bell, LogOut, ShieldAlert, Camera, Loader2, Check, AlertCircle, PlusCircle, Sun, Moon } from 'lucide-react';
+import { ConfirmationModal } from '../ConfirmationModal';
 import { UserProfile } from '@/src/types';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
 import { AdminPanel } from './AdminPanel';
+import { InstallPWA } from '../InstallPWA';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { useAccessibility } from '@/src/contexts/AccessibilityContext';
+import { useToast } from '@/src/context/ToastContext';
 
 import { updateUserPrivacy, updateUserProfile, updateUserPassword, updateUserEmail, uploadFile, deactivateAccount, deleteAccount } from '@/src/services/firebaseService';
 
@@ -18,7 +22,7 @@ interface UserSettingsProps {
   onLogout: () => void;
 }
 
-type Tab = 'account' | 'profile' | 'privacy' | 'appearance' | 'notifications' | 'admin';
+type Tab = 'account' | 'profile' | 'privacy' | 'appearance' | 'notifications' | 'admin' | 'accessibility';
 
 const accountSchema = z.object({
   email: z.string().email('E-mail inválido').optional(),
@@ -33,6 +37,7 @@ const profileSchema = z.object({
   displayName: z.string().min(2, 'Nome muito curto'),
   username: z.string().min(2, 'Username muito curto').regex(/^[a-zA-Z0-9_]+$/, 'Apenas letras, números e sublinhados'),
   about: z.string().max(200, 'Máximo 200 caracteres').optional(),
+  status: z.enum(['online', 'offline', 'away', 'dnd', 'invisible', 'auto']).optional(),
 });
 
 export const UserSettings: React.FC<UserSettingsProps> = ({
@@ -41,14 +46,19 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
   currentUser,
   onLogout
 }) => {
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>('account');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploadingBackground, setIsUploadingBackground] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
+  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [localBackground, setLocalBackground] = useState(currentUser.background);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const { settings, updateSettings } = useAccessibility();
 
   const updateLocalBackground = (updates: any) => {
     const newBackground = {
@@ -59,12 +69,22 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
       delete newBackground.patternId;
     }
     setLocalBackground(newBackground);
+    
+    // Instant update to Firestore
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(async () => {
+      try {
+        await updateUserProfile(currentUser.uid, { background: newBackground });
+      } catch (error) {
+        console.error("Error updating background instantly:", error);
+      }
+    }, 500); // Debounce 500ms
   };
 
   const { register: registerAccount, handleSubmit: handleSubmitAccount, formState: { errors: accountErrors } } = useForm({
     resolver: zodResolver(accountSchema),
     defaultValues: {
-      email: currentUser.email,
+      email: currentUser.email || '',
       cpf: currentUser.cpf || '',
       phone: currentUser.phone || '',
       securityQuestion: currentUser.securityQuestion || '',
@@ -75,9 +95,10 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
   const { register: registerProfile, handleSubmit: handleSubmitProfile, formState: { errors: profileErrors } } = useForm({
     resolver: zodResolver(profileSchema),
     defaultValues: {
-      displayName: currentUser.displayName,
-      username: currentUser.username || currentUser.displayName.toLowerCase().replace(/\s+/g, '_'),
-      about: '', // Assuming about is not in UserProfile yet, but we can add it or just use it as a placeholder
+      displayName: currentUser.displayName || '',
+      username: currentUser.username || (currentUser.displayName ? currentUser.displayName.toLowerCase().replace(/\s+/g, '_') : ''),
+      about: '', 
+      status: currentUser.status || 'auto',
     }
   });
 
@@ -118,6 +139,8 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
       await updateUserProfile(currentUser.uid, {
         displayName: data.displayName,
         username: data.username,
+        about: data.about,
+        status: data.status,
       });
       setUpdateSuccess('Perfil atualizado com sucesso!');
     } catch (error: any) {
@@ -174,7 +197,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
           <div className="w-[30%] min-w-[200px] max-w-[300px] bg-bg-secondary flex justify-end py-14 pr-4">
             <div className="w-full max-w-[200px] space-y-1">
               <div className="px-2 pb-2 text-xs font-bold text-text-muted uppercase tracking-wider">
-                Configurações de Usuário
+                Configurações do Noton Nexus
               </div>
               <button
                 onClick={() => setActiveTab('account')}
@@ -226,6 +249,15 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                 )}
               >
                 Notificações
+              </button>
+              <button
+                onClick={() => setActiveTab('accessibility')}
+                className={cn(
+                  "w-full flex items-center px-2 py-1.5 rounded-md text-sm transition-colors",
+                  activeTab === 'accessibility' ? "bg-bg-tertiary text-text-primary" : "text-text-muted hover:bg-bg-tertiary hover:text-text-secondary"
+                )}
+              >
+                Acessibilidade
               </button>
 
               <div className="h-px bg-border-primary my-3 mx-2" />
@@ -379,20 +411,27 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           <p className="text-xs text-text-muted">Desativar sua conta oculta seu perfil e impede novas mensagens. Você pode reativar depois.</p>
                         </div>
                         <button 
-                          onClick={async () => {
-                            if (window.confirm("Tem certeza que deseja desativar sua conta? Você será desconectado.")) {
-                              try {
-                                await deactivateAccount(currentUser.uid);
-                              } catch (err: any) {
-                                setUpdateError(err.message);
-                              }
-                            }
-                          }}
+                          onClick={() => setShowDeactivateConfirm(true)}
                           className="border border-[#f23f42] text-[#f23f42] hover:bg-[#f23f42] hover:text-white px-4 py-2 rounded text-sm font-medium transition-colors"
                         >
                           Desativar Conta
                         </button>
                       </div>
+
+                      <ConfirmationModal
+                        isOpen={showDeactivateConfirm}
+                        title="Desativar Conta"
+                        message="Tem certeza que deseja desativar sua conta? Você será desconectado."
+                        onConfirm={async () => {
+                          setShowDeactivateConfirm(false);
+                          try {
+                            await deactivateAccount(currentUser.uid);
+                          } catch (err: any) {
+                            setUpdateError(err.message);
+                          }
+                        }}
+                        onCancel={() => setShowDeactivateConfirm(false)}
+                      />
 
                       <div className="h-px bg-border-primary" />
 
@@ -402,20 +441,27 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           <p className="text-xs text-text-muted">Isso excluirá permanentemente todos os seus dados. Esta ação não pode ser desfeita.</p>
                         </div>
                         <button 
-                          onClick={async () => {
-                            if (window.confirm("AVISO CRÍTICO: Tem certeza que deseja EXCLUIR sua conta permanentemente? Todos os seus dados serão perdidos.")) {
-                              try {
-                                await deleteAccount(currentUser.uid);
-                              } catch (err: any) {
-                                setUpdateError(err.message);
-                              }
-                            }
-                          }}
+                          onClick={() => setShowDeleteConfirm(true)}
                           className="bg-[#f23f42] hover:bg-[#d83c3e] text-white px-4 py-2 rounded text-sm font-medium transition-colors"
                         >
                           Excluir Conta
                         </button>
                       </div>
+
+                      <ConfirmationModal
+                        isOpen={showDeleteConfirm}
+                        title="Excluir Conta"
+                        message="AVISO CRÍTICO: Tem certeza que deseja EXCLUIR sua conta permanentemente? Todos os seus dados serão perdidos."
+                        onConfirm={async () => {
+                          setShowDeleteConfirm(false);
+                          try {
+                            await deleteAccount(currentUser.uid);
+                          } catch (err: any) {
+                            setUpdateError(err.message);
+                          }
+                        }}
+                        onCancel={() => setShowDeleteConfirm(false)}
+                      />
                     </div>
                   </div>
                 </div>
@@ -491,6 +537,21 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                             placeholder="Escreva algo sobre você..."
                           />
                         </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-text-muted uppercase">Status</label>
+                          <select 
+                            {...registerProfile('status')}
+                            className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors"
+                          >
+                            <option value="auto">Automático</option>
+                            <option value="online">Online</option>
+                            <option value="away">Ausente</option>
+                            <option value="dnd">Não Perturbe</option>
+                            <option value="invisible">Invisível</option>
+                            <option value="offline">Offline</option>
+                          </select>
+                        </div>
                       </div>
 
                       <button 
@@ -526,6 +587,49 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           "w-4 h-4 bg-white rounded-full absolute top-1 transition-all",
                           currentUser.isPrivate ? "right-1" : "left-1"
                         )} />
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-border-primary my-2" />
+
+                    <div className="space-y-4">
+                      <p className="text-text-primary font-medium">Privacidade de Status</p>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted uppercase">Quem pode ver seus status?</label>
+                        <select 
+                          value={currentUser.statusSettings?.privacy || 'all'}
+                          onChange={(e) => updateUserProfile(currentUser.uid, { 
+                            statusSettings: { 
+                              ...currentUser.statusSettings, 
+                              privacy: e.target.value as any 
+                            } 
+                          })}
+                          className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors"
+                        >
+                          <option value="all">Todos</option>
+                          <option value="contacts">Apenas Contatos</option>
+                          <option value="private">Apenas Eu</option>
+                        </select>
+                        <p className="text-xs text-text-muted">Contatos são usuários com quem você possui conversas privadas.</p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted uppercase">Duração Padrão</label>
+                        <select 
+                          value={currentUser.statusSettings?.duration || '24h'}
+                          onChange={(e) => updateUserProfile(currentUser.uid, { 
+                            statusSettings: { 
+                              ...currentUser.statusSettings, 
+                              duration: e.target.value as any 
+                            } 
+                          })}
+                          className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors"
+                        >
+                          <option value="12h">12 Horas</option>
+                          <option value="24h">24 Horas</option>
+                          <option value="48h">48 Horas</option>
+                          <option value="never">Nunca Expira</option>
+                        </select>
                       </div>
                     </div>
                   </div>
@@ -611,6 +715,11 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           { id: 'pt', name: 'Português', flag: '🇧🇷' },
                           { id: 'en', name: 'English', flag: '🇺🇸' },
                           { id: 'es', name: 'Español', flag: '🇪🇸' },
+                          { id: 'fr', name: 'Français', flag: '🇫🇷' },
+                          { id: 'de', name: 'Deutsch', flag: '🇩🇪' },
+                          { id: 'it', name: 'Italiano', flag: '🇮🇹' },
+                          { id: 'ru', name: 'Русский', flag: '🇷🇺' },
+                          { id: 'zh', name: '中文', flag: '🇨🇳' },
                           { id: 'ja', name: '日本語', flag: '🇯🇵' }
                         ].map(lang => (
                           <button
@@ -627,6 +736,52 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                             <span className="text-xs font-bold text-text-primary">{lang.name}</span>
                           </button>
                         ))}
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-bg-primary" />
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-text-primary font-medium">Zoom do Site</p>
+                        <span className="text-sm font-bold text-color-brand">{currentUser.zoom || 100}%</span>
+                      </div>
+                      <div className="flex items-center space-x-4">
+                        <span className="text-xs text-text-muted">50%</span>
+                        <input 
+                          type="range"
+                          min="50"
+                          max="150"
+                          step="5"
+                          value={currentUser.zoom || 100}
+                          onChange={(e) => updateUserProfile(currentUser.uid, { zoom: parseInt(e.target.value) })}
+                          className="flex-1 h-1.5 bg-bg-primary rounded-lg appearance-none cursor-pointer accent-color-brand"
+                        />
+                        <span className="text-xs text-text-muted">150%</span>
+                      </div>
+                      <p className="text-[10px] text-text-muted italic">Ajuste o tamanho da interface para melhor visualização.</p>
+                    </div>
+
+                    <div className="h-px bg-bg-primary" />
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-text-primary font-medium">Pré-visualização de Links</p>
+                          <p className="text-xs text-text-muted mt-1">Mostrar título, descrição e imagem ao enviar links no chat.</p>
+                        </div>
+                        <button 
+                          onClick={() => updateUserProfile(currentUser.uid, { linkPreviewsEnabled: currentUser.linkPreviewsEnabled === false ? true : false })}
+                          className={cn(
+                            "w-12 h-6 rounded-full transition-colors relative",
+                            currentUser.linkPreviewsEnabled !== false ? "bg-color-brand" : "bg-bg-primary"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-4 h-4 bg-white rounded-full absolute top-1 transition-transform",
+                            currentUser.linkPreviewsEnabled !== false ? "left-7" : "left-1"
+                          )} />
+                        </button>
                       </div>
                     </div>
 
@@ -832,7 +987,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                                               value: url 
                                             });
                                           } catch (err) {
-                                            alert("Erro ao fazer upload do fundo.");
+                                            showToast("Erro ao fazer upload do fundo.", "error");
                                           } finally {
                                             setIsUploadingBackground(false);
                                           }
@@ -911,14 +1066,88 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
               {activeTab === 'notifications' && (
                 <div className="space-y-6">
                   <h2 className="text-xl font-bold text-text-primary">Notificações</h2>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between bg-bg-tertiary p-4 rounded-lg">
+                  <div className="bg-bg-tertiary p-6 rounded-lg space-y-6">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-text-primary font-medium">Ativar Notificações na Área de Trabalho</p>
+                        <p className="text-text-primary font-medium">Notificações de Mensagens</p>
+                        <p className="text-sm text-text-muted">Receber alertas quando novas mensagens chegarem.</p>
                       </div>
-                      <div className="w-10 h-6 bg-[#80848e] rounded-full relative cursor-pointer">
-                        <div className="w-4 h-4 bg-white rounded-full absolute left-1 top-1" />
+                      <button 
+                        onClick={() => updateUserProfile(currentUser.uid, { 
+                          statusSettings: { 
+                            ...currentUser.statusSettings, 
+                            statusNotifications: currentUser.statusSettings?.statusNotifications === false ? true : false 
+                          } 
+                        })}
+                        className={cn(
+                          "w-12 h-6 rounded-full transition-colors relative",
+                          currentUser.statusSettings?.statusNotifications !== false ? "bg-color-brand" : "bg-bg-primary"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 bg-white rounded-full absolute top-1 transition-transform",
+                          currentUser.statusSettings?.statusNotifications !== false ? "left-7" : "left-1"
+                        )} />
+                      </button>
+                    </div>
+
+                    <div className="h-px bg-bg-primary" />
+
+                    <div className="space-y-4">
+                      <p className="text-text-primary font-medium">Configurações de Aplicativo (PWA)</p>
+                      <p className="text-sm text-text-muted">Instale o Noton Nexus como um aplicativo nativo e ative notificações do sistema.</p>
+                      <InstallPWA />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'accessibility' && (
+                <div className="space-y-6">
+                  <h2 className="text-xl font-bold text-text-primary">Acessibilidade</h2>
+                  <div className="bg-bg-tertiary p-6 rounded-lg space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-text-primary font-medium">Modo Estudante (Escola)</p>
+                        <p className="text-sm text-text-muted">Interface limpa e focada para ambiente escolar.</p>
                       </div>
+                      <button 
+                        onClick={() => {
+                          updateSettings({ studentMode: !settings.studentMode });
+                        }}
+                        className={cn(
+                          "w-12 h-6 rounded-full transition-colors relative",
+                          settings.studentMode ? "bg-color-brand" : "bg-bg-primary"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 bg-white rounded-full absolute top-1 transition-transform",
+                          settings.studentMode ? "left-7" : "left-1"
+                        )} />
+                      </button>
+                    </div>
+
+                    <div className="h-px bg-bg-primary" />
+
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-text-primary font-medium">Modo Autista</p>
+                        <p className="text-sm text-text-muted">Cores suaves e redução de estímulos visuais.</p>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          updateSettings({ autismTheme: !settings.autismTheme });
+                        }}
+                        className={cn(
+                          "w-12 h-6 rounded-full transition-colors relative",
+                          settings.autismTheme ? "bg-color-brand" : "bg-bg-primary"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 bg-white rounded-full absolute top-1 transition-transform",
+                          settings.autismTheme ? "left-7" : "left-1"
+                        )} />
+                      </button>
                     </div>
                   </div>
                 </div>

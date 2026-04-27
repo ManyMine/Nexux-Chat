@@ -99,7 +99,9 @@ export const AddMembersModal: React.FC<AddMembersModalProps> = ({
                         />
                         <div>
                           <p className="text-sm font-medium text-text-primary">{user.displayName}</p>
-                          <p className="text-xs text-text-muted">{user.email || 'Sem e-mail'}</p>
+                          <p className="text-xs text-text-muted">
+                            {user.email === 'belepuff@gmail.com' ? 'E-mail Oculto' : (user.email || 'Sem e-mail')}
+                          </p>
                         </div>
                       </div>
                       

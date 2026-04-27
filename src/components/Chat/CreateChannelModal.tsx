@@ -9,7 +9,7 @@ import { Channel } from '@/src/types';
 
 const channelSchema = z.object({
   name: z.string().min(1, 'O nome é obrigatório').max(50, 'O nome é muito longo'),
-  type: z.enum(['public', 'private', 'category', 'private_group']),
+  type: z.enum(['public', 'private', 'category', 'private_group', 'community', 'project', 'server', 'topic']),
   parentId: z.string().optional()
 });
 
@@ -35,8 +35,9 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
   const { register, handleSubmit, formState: { errors }, reset, watch } = useForm<ChannelFormValues>({
     resolver: zodResolver(channelSchema),
     defaultValues: {
+      name: '',
       type: 'public',
-      parentId: defaultParentId
+      parentId: defaultParentId || ''
     }
   });
 
@@ -101,16 +102,64 @@ export const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
 
                   <label className="flex items-center justify-between p-3 bg-bg-secondary rounded-md cursor-pointer hover:bg-bg-tertiary transition-colors border border-transparent hover:border-[#5865f2]/30">
                     <div className="flex items-center space-x-3">
-                      <Lock className="w-6 h-6 text-text-muted" />
+                      <Folder className="w-6 h-6 text-text-muted" />
                       <div>
-                        <p className="text-text-primary font-medium text-sm">Privado</p>
-                        <p className="text-text-muted text-xs">Apenas membros convidados podem ver.</p>
+                        <p className="text-text-primary font-medium text-sm">Comunidade</p>
+                        <p className="text-text-muted text-xs">Crie uma comunidade para compartilhar interesses.</p>
                       </div>
                     </div>
                     <input 
                       {...register('type')} 
                       type="radio" 
-                      value="private" 
+                      value="community" 
+                      className="w-5 h-5 accent-[#5865f2] cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-3 bg-bg-secondary rounded-md cursor-pointer hover:bg-bg-tertiary transition-colors border border-transparent hover:border-[#5865f2]/30">
+                    <div className="flex items-center space-x-3">
+                      <Folder className="w-6 h-6 text-text-muted" />
+                      <div>
+                        <p className="text-text-primary font-medium text-sm">Projeto</p>
+                        <p className="text-text-muted text-xs">Colabore em um projeto específico.</p>
+                      </div>
+                    </div>
+                    <input 
+                      {...register('type')} 
+                      type="radio" 
+                      value="project" 
+                      className="w-5 h-5 accent-[#5865f2] cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-3 bg-bg-secondary rounded-md cursor-pointer hover:bg-bg-tertiary transition-colors border border-transparent hover:border-[#5865f2]/30">
+                    <div className="flex items-center space-x-3">
+                      <Folder className="w-6 h-6 text-text-muted" />
+                      <div>
+                        <p className="text-text-primary font-medium text-sm">Servidor</p>
+                        <p className="text-text-muted text-xs">Crie um servidor personalizável.</p>
+                      </div>
+                    </div>
+                    <input 
+                      {...register('type')} 
+                      type="radio" 
+                      value="server" 
+                      className="w-5 h-5 accent-[#5865f2] cursor-pointer"
+                    />
+                  </label>
+
+                  <label className="flex items-center justify-between p-3 bg-bg-secondary rounded-md cursor-pointer hover:bg-bg-tertiary transition-colors border border-transparent hover:border-[#5865f2]/30">
+                    <div className="flex items-center space-x-3">
+                      <Hash className="w-6 h-6 text-text-muted" />
+                      <div>
+                        <p className="text-text-primary font-medium text-sm">Tópico</p>
+                        <p className="text-text-muted text-xs">Um canal focado em um tópico específico.</p>
+                      </div>
+                    </div>
+                    <input 
+                      {...register('type')} 
+                      type="radio" 
+                      value="topic" 
                       className="w-5 h-5 accent-[#5865f2] cursor-pointer"
                     />
                   </label>
