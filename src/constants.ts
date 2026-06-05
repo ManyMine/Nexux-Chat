@@ -4,6 +4,7 @@ export const CHANNELS_COLLECTION = "channels";
 export const MESSAGES_COLLECTION = "messages";
 export const USERS_COLLECTION = "users";
 export const TYPING_COLLECTION = "typing";
+export const RECORDING_COLLECTION = "recording";
 export const CALLS_COLLECTION = "calls";
 export const STATUSES_COLLECTION = "statuses";
 export const STATUS_PRESENCE_COLLECTION = "statusPresence";

@@ -324,9 +324,10 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                 <div className="space-y-6">
                   <h2 className="text-xl font-bold text-text-primary">Minha Conta</h2>
                   
-                  <form onSubmit={handleSubmitAccount(onAccountSubmit)} className="space-y-4">
-                    <div className="bg-bg-tertiary rounded-lg p-6 space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-bg-tertiary rounded-lg p-6 space-y-6">
+                    <form onSubmit={handleSubmitAccount(onAccountSubmit)} className="space-y-4">
+                      
+                      <div className="space-y-4">
                         <div className="space-y-2">
                           <label className="text-xs font-bold text-text-muted uppercase">E-mail</label>
                           <input 
@@ -334,16 +335,6 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                             className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors"
                           />
                           {accountErrors.email && <p className="text-xs text-[#f23f42]">{accountErrors.email.message}</p>}
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-bold text-text-muted uppercase">Nova Senha</label>
-                          <input 
-                            {...registerAccount('password')}
-                            type="password"
-                            placeholder="Deixe em branco para não alterar"
-                            className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors"
-                          />
-                          {accountErrors.password && <p className="text-xs text-[#f23f42]">{accountErrors.password.message}</p>}
                         </div>
                       </div>
 
@@ -399,8 +390,31 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           <span>Salvar Alterações</span>
                         </button>
                       </div>
+                    </form>
+
+                    {/* Dedicated Password Section */}
+                    <div className="pt-6 border-t border-border-primary space-y-4">
+                      <h3 className="text-sm font-bold text-text-primary uppercase">Senha de Acesso</h3>
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-text-muted uppercase">Nova Senha</label>
+                        <input 
+                          {...registerAccount('password')}
+                          type="password"
+                          placeholder="Digite sua nova senha"
+                          className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors"
+                        />
+                        {accountErrors.password && <p className="text-xs text-[#f23f42]">{accountErrors.password.message}</p>}
+                      </div>
+                      <button 
+                          onClick={handleSubmitAccount(onAccountSubmit)}
+                          disabled={isUpdating}
+                          className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-6 py-2 rounded font-medium transition-colors flex items-center space-x-2 disabled:opacity-50"
+                        >
+                          {isUpdating && <Loader2 className="w-4 h-4 animate-spin" />}
+                          <span>Alterar Senha</span>
+                        </button>
                     </div>
-                  </form>
+                  </div>
 
                   <div className="mt-10 space-y-4">
                     <h3 className="text-sm font-bold text-[#f23f42] uppercase">Zona de Perigo</h3>
@@ -586,6 +600,27 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                         <div className={cn(
                           "w-4 h-4 bg-white rounded-full absolute top-1 transition-all",
                           currentUser.isPrivate ? "right-1" : "left-1"
+                        )} />
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-border-primary my-2" />
+                    
+                    <div className="flex items-center justify-between bg-bg-tertiary p-4 rounded-lg">
+                      <div>
+                        <p className="text-text-primary font-medium">Login Google Automático</p>
+                        <p className="text-sm text-text-muted">Acessar conta sem senha se o e-mail Google corresponder.</p>
+                      </div>
+                      <div 
+                        onClick={() => updateUserProfile(currentUser.uid, { googleLoginEnabled: !currentUser.googleLoginEnabled })}
+                        className={cn(
+                          "w-10 h-6 rounded-full relative cursor-pointer transition-colors",
+                          currentUser.googleLoginEnabled ? "bg-[#23a559]" : "bg-[#80848e]"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 bg-white rounded-full absolute top-1 transition-all",
+                          currentUser.googleLoginEnabled ? "right-1" : "left-1"
                         )} />
                       </div>
                     </div>

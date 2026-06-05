@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Settings, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { X, Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Settings, Wifi, WifiOff, Loader2, Sparkles } from 'lucide-react';
 import { Channel, UserProfile } from '@/src/types';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
+import { useToast } from '@/src/context/ToastContext';
 import { 
   saveOffer, 
   saveAnswer, 
@@ -31,8 +32,10 @@ const servers = {
 };
 
 export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser, allUsers = [], onClose, type }) => {
+  const { showToast } = useToast();
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(type === 'video');
+  const [videoEffect, setVideoEffect] = useState('none');
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'failed' | 'syncing'>('syncing');
   const [speakingUsers, setSpeakingUsers] = useState<string[]>([]);
@@ -71,7 +74,6 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
     const initWebRTC = async () => {
       if (pcRef.current) return; // Already initialized
 
-      // Pre-access media before signaling
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: type === 'video',
@@ -79,8 +81,15 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
         });
         streamRef.current = stream;
         setConnectionStatus('connecting');
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error accessing media devices:", err);
+        let errorMessage = "Erro ao acessar a câmera ou microfone.";
+        if (err.name === 'NotAllowedError') {
+          errorMessage = "Permissão negada. Por favor, permita o acesso à câmera e microfone.";
+        } else if (err.name === 'NotFoundError') {
+          errorMessage = "Câmera ou microfone não encontrados.";
+        }
+        showToast(errorMessage, "error");
         setConnectionStatus('failed');
         return;
       }
@@ -385,6 +394,7 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
                       playsInline 
                       muted 
                       className="w-full h-full object-cover mirror"
+                      style={{ filter: videoEffect }}
                     />
                   ) : (
                     <div className="relative">
@@ -436,6 +446,19 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
 
       {/* Controls */}
       <div className="h-20 bg-bg-overlay flex items-center justify-center space-x-4 px-4">
+        {isVideoOn && (
+          <button
+            onClick={() => {
+              const effects = ['none', 'grayscale(100%)', 'sepia(100%)', 'invert(100%)', 'hue-rotate(90deg)'];
+              const nextEffect = effects[(effects.indexOf(videoEffect) + 1) % effects.length];
+              setVideoEffect(nextEffect);
+            }}
+            className="p-3 bg-bg-secondary hover:bg-bg-tertiary text-white rounded-full transition-colors"
+            title="Alternar Efeitos"
+          >
+            <Sparkles className="w-6 h-6" />
+          </button>
+        )}
         <button 
           onClick={() => setIsVideoOn(!isVideoOn)}
           className={cn(

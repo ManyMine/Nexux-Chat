@@ -29,8 +29,11 @@ interface ChatLayoutProps {
   isLoadingMessages?: boolean;
   allUsers: UserProfile[];
   typingUsers: string[];
+  recordingUsers: string[];
   onStartTyping: () => Promise<void>;
   onStopTyping: () => Promise<void>;
+  onStartRecording: () => Promise<void>;
+  onStopRecording: () => Promise<void>;
   onSelectUser: (user: UserProfile) => void;
   activeCall: { id: string, type: 'voice' | 'video', channel: Channel } | null;
   onStartCall: (video: boolean) => void;
@@ -51,8 +54,11 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   isLoadingMessages,
   allUsers,
   typingUsers,
+  recordingUsers,
   onStartTyping,
   onStopTyping,
+  onStartRecording,
+  onStopRecording,
   onSelectUser,
   activeCall,
   onStartCall,
@@ -255,8 +261,11 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
           isLoading={isLoadingMessages}
           currentUser={currentUser}
           typingUsers={typingUsers}
+          recordingUsers={recordingUsers}
           onStartTyping={onStartTyping}
           onStopTyping={onStopTyping}
+          onStartRecording={onStartRecording}
+          onStopRecording={onStopRecording}
           onToggleSidebar={() => setIsSidebarOpen(true)}
           activeCall={activeCall}
           onStartCall={onStartCall}

@@ -13,7 +13,10 @@
         "createdAt": { "type": "number", "description": "Timestamp of account creation" },
         "role": { "type": "string", "enum": ["admin", "user"], "description": "User role" },
         "isBlocked": { "type": "boolean", "description": "Whether the user is blocked" },
-        "isPrivate": { "type": "boolean", "description": "Whether the user account is private" }
+        "isPrivate": { "type": "boolean", "description": "Whether the user account is private" },
+        "securityQuestion": { "type": "string", "description": "Security question for account recovery" },
+        "securityAnswer": { "type": "string", "description": "Answer to security question for account recovery" },
+        "googleLoginEnabled": { "type": "boolean", "description": "Whether user can login with Google auto" }
       },
       "required": ["uid", "email", "displayName", "createdAt"]
     },
@@ -107,12 +110,24 @@
         "updatedAt": { "type": "number", "description": "Timestamp of last update" }
       },
       "required": ["userId", "channelId", "content", "updatedAt"]
+    },
+    "recording": {
+      "title": "Recording",
+      "description": "Tracks users currently recording in a channel",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The name of the user recording" }
+      }
     }
   },
   "firestore": {
     "/users/{uid}": {
       "schema": "users",
       "description": "User profile documents"
+    },
+    "/recording/{channelId}": {
+      "schema": "recording",
+      "description": "Recording status for a channel"
     },
     "/channels/{channelId}": {
       "schema": "channels",

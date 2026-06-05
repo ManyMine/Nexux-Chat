@@ -35,8 +35,11 @@ interface ChatAreaProps {
   isLoading?: boolean;
   currentUser: UserProfile;
   typingUsers: string[];
+  recordingUsers: string[];
   onStartTyping: () => Promise<void>;
   onStopTyping: () => Promise<void>;
+  onStartRecording: () => Promise<void>;
+  onStopRecording: () => Promise<void>;
   onToggleSidebar?: () => void;
   activeCall: { id: string, type: 'voice' | 'video', channel: Channel } | null;
   onStartCall: (video: boolean) => void;
@@ -99,8 +102,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   isLoading,
   currentUser,
   typingUsers,
+  recordingUsers,
   onStartTyping,
   onStopTyping,
+  onStartRecording,
+  onStopRecording,
   onToggleSidebar,
   activeCall,
   onStartCall,
@@ -223,20 +229,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   useEffect(() => {
     if (activeChannel && currentUser) {
-      setDraftLoaded(false);
-      getDraft(currentUser.uid, activeChannel.id).then(draft => {
-        if (draft) {
-          setInput(draft.content);
-        } else {
-          setInput('');
-        }
-        setDraftLoaded(true);
-      });
+      // Fast load from localStorage
+      const saved = localStorage.getItem(`draft_${activeChannel.id}`);
+      if (saved) {
+        setInput(saved);
+      } else {
+        // Fallback to Firebase if local doesn't exist
+        getDraft(currentUser.uid, activeChannel.id).then(draft => {
+          if (draft) setInput(draft.content);
+          else setInput('');
+        });
+      }
+      setDraftLoaded(true);
     }
   }, [activeChannel, currentUser]);
 
   useEffect(() => {
     if (activeChannel && currentUser && draftLoaded) {
+      // Local autosave
+      localStorage.setItem(`draft_${activeChannel.id}`, input);
+      
       const handler = setTimeout(() => {
         if (input.trim()) {
           saveDraft(currentUser.uid, activeChannel.id, input);
@@ -281,9 +293,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             mimeType = 'audio/webm';
           }
           const finalBlob = new Blob(audioChunksRef.current, { type: mimeType });
-          const file = new File([finalBlob], `audio.${mimeType.split(';')[0].split('/')[1] || 'webm'}`, { type: mimeType });
+          const file = new File([finalBlob], `audio.mp3`, { type: 'audio/mpeg' });
           
-          setPendingAudioFile(file);
+          if (autoSendRef.current) {
+            setPendingAudioFile(file);
+            setTimeout(async () => {
+              await onSendMessage(input.trim(), file);
+              setPendingAudioFile(null);
+            }, 100);
+          } else {
+            setPendingAudioFile(file);
+          }
         } catch (error) {
           console.error("Error finalizing audio:", error);
           showToast(`Erro ao gravar áudio: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -297,6 +317,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
       mediaRecorder.start();
       setIsRecording(true);
+      onStartRecording();
     } catch (error) {
       console.error("Error starting recording:", error);
       // @ts-ignore
@@ -304,8 +325,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     }
   };
 
-  const stopRecording = () => {
+  const autoSendRef = useRef(false);
+
+  const stopRecording = (autoSend: boolean = false) => {
     if (mediaRecorderRef.current && isRecording) {
+      autoSendRef.current = autoSend;
       // Force finalize the data
       mediaRecorderRef.current.requestData();
       // Small delay to ensure data is processed before stopping
@@ -314,14 +338,25 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           mediaRecorderRef.current.stop();
         }
         setIsRecording(false);
+        onStopRecording();
       }, 300);
     }
   };
 
   const sendPendingAudio = async () => {
     if (pendingAudioFile) {
-      await onSendMessage('', pendingAudioFile);
+      const fileToSend = pendingAudioFile;
       setPendingAudioFile(null);
+      try {
+        const content = input.trim();
+        await onSendMessage(content, fileToSend);
+        setInput('');
+        localStorage.removeItem(`draft_${activeChannel?.id}`);
+      } catch (e) {
+        console.error("Error sending audio:", e);
+        showToast("Erro ao enviar áudio", "error");
+        setPendingAudioFile(fileToSend);
+      }
     }
   };
 
@@ -342,6 +377,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (pendingAudioFile) {
+        await sendPendingAudio();
+        return;
+    }
 
     const isAdmin = currentUser.role === 'admin';
     const canChat = currentUser.canChat !== false || isAdmin;
@@ -1032,7 +1072,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
           {/* Messages List Area */}
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
-          <div className="absolute bottom-24 right-6 flex flex-col space-y-2 z-20">
+          <div className="absolute bottom-40 right-6 flex flex-col space-y-2 z-20">
             <button 
               onClick={() => scrollRef.current?.scrollTo({top: 0, behavior: 'smooth'})}
               className={cn("p-2 bg-bg-secondary border border-border-primary rounded-full hover:bg-bg-tertiary shadow-lg text-text-primary transition-opacity duration-200", showScrollToTop ? "opacity-100" : "opacity-0 pointer-events-none")}
@@ -1067,6 +1107,17 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   {typingUsers.length > 2 
                     ? 'Vários usuários estão digitando...' 
                     : `${typingUsers.join(' e ')} ${typingUsers.length === 1 ? 'está' : 'estão'} digitando...`}
+                </span>
+              </div>
+            )}
+            {/* Recording Indicator */}
+            {recordingUsers.length > 0 && (
+              <div className="flex items-center space-x-2 px-4 py-2 text-xs text-green-500 animate-in fade-in slide-in-from-bottom-2">
+                <Mic className="w-3 h-3 animate-pulse" />
+                <span className="font-medium">
+                  {recordingUsers.length > 2 
+                    ? 'Vários usuários estão gravando áudio...' 
+                    : `${recordingUsers.join(' e ')} ${recordingUsers.length === 1 ? 'está' : 'estão'} gravando áudio...`}
                 </span>
               </div>
             )}
@@ -1247,7 +1298,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     </div>
 
                     {msg.fileUrl && (
-                        msg.fileType?.startsWith('image/') ? (
+                        (() => {
+                           console.log("Rendering message:", msg.fileUrl, msg.fileType);
+                           const isAudio = !!(msg.fileType?.startsWith('audio/') || 
+                                           msg.fileUrl?.toLowerCase().includes('audio') ||
+                                           msg.fileUrl?.toLowerCase().match(/\.(mp3|wav|ogg|webm|mpeg|aac|m4a)$/));
+                           console.log("isAudio result:", isAudio, "for url:", msg.fileUrl, "type:", msg.fileType);
+                           return msg.fileType?.startsWith('image/') ? (
                           <img 
                             src={msg.fileUrl} 
                             alt="attachment" 
@@ -1255,8 +1312,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             onClick={() => setLightboxFile({ url: msg.fileUrl!, type: 'image' })}
                             referrerPolicy="no-referrer" 
                           />
-                        ) : (msg.fileType?.includes('audio') || msg.fileUrl.includes('audio.')) ? (
-                          <AudioPlayer url={msg.fileUrl!} />
+                        ) : isAudio ? (
+                          <AudioPlayer url={msg.fileUrl!} isSent={msg.senderId === currentUser.uid} showDuration={true} />
                         ) : msg.fileType?.startsWith('video/') ? (
                           <video 
                             controls 
@@ -1268,7 +1325,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[#5865f2] hover:underline mt-2 block">
                             Download File
                           </a>
-                        )
+                        );
+                        })()
                       )}
 
                       {msg.statusReply && (
@@ -1486,10 +1544,30 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           {/* Message Input */}
           <div className="p-4 pt-0 shrink-0 min-w-0 w-full">
             {pendingAudioFile && (
-              <div className="flex items-center gap-2 mb-2 p-2 bg-bg-secondary rounded-lg border border-border-primary/50">
-                 <AudioPlayer url={URL.createObjectURL(pendingAudioFile)} />
-                 <button onClick={sendPendingAudio} className="p-2 text-green-500 hover:text-green-600 transition-colors"><Send className="w-5 h-5"/></button>
-                 <button onClick={cancelPendingAudio} className="p-2 text-red-500 hover:text-red-600 transition-colors"><Trash2 className="w-5 h-5"/></button>
+              <div className="flex flex-col gap-2 mb-2 p-3 bg-bg-secondary rounded-lg border border-color-brand/30 shadow-2xl animate-in fade-in slide-in-from-bottom-4">
+                 <div className="flex items-center justify-between px-1">
+                    <span className="text-[10px] font-bold text-color-brand uppercase tracking-wider flex items-center gap-1">
+                      <Mic className="w-3 h-3" /> Pré-visualização do Áudio
+                    </span>
+                    <button onClick={cancelPendingAudio} className="text-text-muted hover:text-red-500 transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                 </div>
+                 <div className="flex items-center gap-3">
+                    <div className="flex-1">
+                       <AudioPlayer url={URL.createObjectURL(pendingAudioFile)} showDuration={true} />
+                    </div>
+                    <button 
+                      onClick={() => {
+                        sendPendingAudio();
+                        setPendingAudioFile(null); // Remove a pré-visualização imediatamente
+                      }} 
+                      className="p-3 bg-color-brand hover:bg-color-brand/90 text-white rounded-full transition-colors flex items-center justify-center disabled:opacity-50"
+                      title="Enviar áudio"
+                    >
+                      <Send className="w-5 h-5" />
+                    </button>
+                 </div>
               </div>
             )}
             {editingMessageId && (
@@ -1511,13 +1589,15 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 <div className="flex items-center space-x-1 md:space-x-2 flex-shrink-0">
                   <button 
                     type="button" 
-                    onMouseDown={startRecording}
-                    onMouseUp={stopRecording}
-                    onMouseLeave={() => isRecording && stopRecording()}
-                    onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
-                    onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
+                    onClick={async () => {
+                      if (isRecording) {
+                        stopRecording(true);
+                      } else {
+                        startRecording();
+                      }
+                    }}
                     className={cn(
-                      "p-1.5 rounded-full transition-colors shadow-sm",
+                      "p-1.5 rounded-full transition-colors shadow-sm flex items-center gap-2",
                       isRecording ? "bg-red-500 text-white animate-pulse" : "text-text-muted hover:text-text-primary"
                     )}
                   >
@@ -1750,10 +1830,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 )}
                 <button 
                   type="submit" 
-                  disabled={isUploading || (editingMessageId ? !editContent.trim() : !input.trim())}
+                  disabled={(pendingAudioFile ? false : isUploading) || (editingMessageId ? !editContent.trim() : !input.trim())}
+                  onClick={pendingAudioFile ? sendPendingAudio : undefined}
                   className={cn(
                     "p-2 md:p-1.5 rounded-full transition-all",
-                    (editingMessageId ? editContent.trim() : input.trim()) ? "bg-color-brand text-white" : "text-text-muted",
+                    (pendingAudioFile || (editingMessageId ? editContent.trim() : input.trim())) ? "bg-color-brand text-white" : "text-text-muted",
                     isUploading && "bg-bg-tertiary"
                   )}
                 >
@@ -1778,6 +1859,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     {typingUsers.map(uid => allUsers.find(u => u.uid === uid)?.displayName || 'Alguém').join(', ')} está(ão) digitando...
                   </div>
                 )}
+              </div>
+            )}
+            {recordingUsers.length > 0 && (
+              <div className="px-4 py-2 text-xs text-green-500 flex items-center gap-1 animate-pulse">
+                <Mic className="w-3 h-3 h-3" />
+                {recordingUsers.map(uid => allUsers.find(u => u.uid === uid)?.displayName || 'Alguém').join(', ')} está(ão) gravando áudio...
               </div>
             )}
             <p className="text-[10px] text-text-muted mt-1 ml-4">
@@ -1911,9 +1998,10 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             transition={{ duration: 0.1 }}
             style={{ 
               top: Math.min(contextMenu.y, window.innerHeight - 300), 
-              left: Math.min(contextMenu.x, window.innerWidth - 260) 
+              left: Math.min(contextMenu.x, window.innerWidth - 260),
+              touchAction: 'pan-y'
             }}
-            className="fixed z-50 w-64 bg-bg-overlay border border-border-primary rounded-md shadow-2xl py-1.5"
+            className="fixed z-50 w-64 bg-bg-overlay border border-border-primary rounded-md shadow-2xl py-1.5 max-h-[70vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {contextMenu.message.senderId !== currentUser.uid && (

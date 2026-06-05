@@ -30,12 +30,14 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
   error,
   success
 }) => {
-  const [step, setStep] = React.useState<'email' | 'choice' | 'security'>('email');
+  const [step, setStep] = React.useState<'email' | 'choice' | 'security' | 'password'>('email');
   const [userProfile, setUserProfile] = React.useState<any>(null);
   const [securityError, setSecurityError] = React.useState<string | null>(null);
   const [isVerifying, setIsVerifying] = React.useState(false);
+  const [newPassword, setNewPassword] = React.useState('');
+  const [googleLoginEnabled, setGoogleLoginEnabled] = React.useState(false);
 
-  const { register, handleSubmit, getValues, formState: { errors } } = useForm<ForgotPasswordFormValues>({
+  const { register, handleSubmit, getValues, watch, formState: { errors } } = useForm<ForgotPasswordFormValues>({
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: {
       email: '',
@@ -43,22 +45,39 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
     }
   });
 
-  const handleEmailSubmit = async (data: ForgotPasswordFormValues) => {
-    setIsVerifying(true);
-    setSecurityError(null);
-    try {
-      const profile = await getUserByEmail(data.email);
-      if (!profile) {
-        setSecurityError("E-mail não encontrado em nossa base de dados.");
-        return;
+  // ... inside ForgotPassword component, add the new password step UI
+
+  const emailValue = watch('email');
+
+  React.useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (emailValue && emailValue.includes('@')) {
+        setIsVerifying(true);
+        setSecurityError(null);
+        try {
+          const profile = await getUserByEmail(emailValue);
+          if (profile) {
+            setUserProfile(profile);
+          } else {
+            setUserProfile(null);
+          }
+        } catch (err) {
+          console.error("Erro na busca em tempo real:", err);
+        } finally {
+          setIsVerifying(false);
+        }
       }
-      setUserProfile(profile);
-      setStep('choice');
-    } catch (err) {
-      setSecurityError("Ocorreu um erro ao buscar seu usuário. Tente novamente.");
-    } finally {
-      setIsVerifying(false);
+    }, 800);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [emailValue]);
+
+  const handleEmailSubmit = async (data: ForgotPasswordFormValues) => {
+    if (!userProfile) {
+      setSecurityError("E-mail não encontrado em nossa base de dados.");
+      return;
     }
+    setStep('choice');
   };
 
   const handleSecuritySubmit = async (data: ForgotPasswordFormValues) => {
@@ -68,7 +87,7 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
     try {
       const isValid = await verifySecurityAnswer(data.email, data.securityAnswer);
       if (isValid) {
-        await onReset({ email: data.email });
+        setStep('password');
       } else {
         setSecurityError("A resposta da pergunta de segurança está incorreta.");
       }
@@ -252,6 +271,51 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
               {isVerifying ? <Loader2 className="w-6 h-6 animate-spin" /> : "Verificar Resposta"}
             </button>
           </form>
+        )}
+
+        {step === 'password' && (
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <label className="text-xs font-black uppercase text-text-muted tracking-widest ml-1">Nova Senha</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 px-4 text-text-primary placeholder:text-text-muted/50 focus:ring-2 focus:ring-color-brand/50 focus:border-color-brand outline-none transition-all"
+                placeholder="********"
+              />
+            </div>
+            
+            <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
+              <div>
+                <p className="text-sm font-bold text-text-primary">Login Automático Google</p>
+                <p className="text-xs text-text-muted">Acessar sem senha se e-mail coincidir.</p>
+              </div>
+              <div 
+                onClick={() => setGoogleLoginEnabled(!googleLoginEnabled)}
+                className={cn(
+                  "w-12 h-6 rounded-full relative cursor-pointer transition-colors",
+                  googleLoginEnabled ? "bg-color-brand" : "bg-text-muted/20"
+                )}
+              >
+                <div className={cn(
+                  "w-4 h-4 bg-white rounded-full absolute top-1 transition-all",
+                  googleLoginEnabled ? "right-1" : "left-1"
+                )} />
+              </div>
+            </div>
+
+            <button
+              onClick={async () => {
+                console.log("Saving...", { newPassword, googleLoginEnabled });
+                // @ts-ignore
+                await onReset({ email: getValues('email'), password: newPassword, googleLoginEnabled });
+              }}
+              className="w-full bg-color-brand text-white font-black py-4 rounded-2xl transition-all"
+            >
+              Salvar e Entrar
+            </button>
+          </div>
         )}
 
         <button

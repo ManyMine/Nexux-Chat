@@ -16,6 +16,7 @@ export interface UserProfile {
   phone?: string;
   username?: string; // For "@" handle
   about?: string;
+  googleLoginEnabled?: boolean;
   background?: {
     type: 'color' | 'video' | 'gif' | 'image' | 'gradient' | 'pattern';
     value: string; // hex color, URL, or CSS gradient string

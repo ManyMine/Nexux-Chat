@@ -30,7 +30,10 @@ import {
   uploadFile,
   startTyping,
   stopTyping,
-  getTypingUsers,
+  getTypingUsers, 
+  startRecordingStatus,
+  stopRecordingStatus,
+  getRecordingUsers,
   startCall,
   updateCallStatus,
   listenForIncomingCalls,
@@ -85,6 +88,7 @@ export default function App() {
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [recordingUsers, setRecordingUsers] = useState<string[]>([]);
 
   // Call State
   const [incomingCall, setIncomingCall] = useState<Call | null>(null);
@@ -345,6 +349,18 @@ export default function App() {
     }
   }, [activeChannel, currentUser]);
 
+  // Recording Listener
+  useEffect(() => {
+    if (activeChannel && currentUser) {
+      const unsubscribe = getRecordingUsers(activeChannel.id, (users) => {
+        setRecordingUsers(users.filter(u => u !== currentUser.displayName));
+      });
+      return () => unsubscribe();
+    } else {
+      setRecordingUsers([]);
+    }
+  }, [activeChannel, currentUser]);
+
 
   const handleLogin = async (values: any) => {
     setIsLoading(true);
@@ -353,6 +369,9 @@ export default function App() {
       const userProfile = await signIn(values.identifier, values.password);
       if (userProfile.isBlocked) {
         setAuthError("Sua conta foi bloqueada por um administrador.");
+        await logOut();
+      } else if (userProfile.isDeactivated) {
+        setAuthError("Sua conta está desativada. Entre em contato com o suporte.");
         await logOut();
       }
     } catch (error: any) {
@@ -369,6 +388,9 @@ export default function App() {
       const userProfile = await signInWithGoogle();
       if (userProfile.isBlocked) {
         setAuthError("Sua conta foi bloqueada por um administrador.");
+        await logOut();
+      } else if (userProfile.isDeactivated) {
+        setAuthError("Sua conta está desativada. Entre em contato com o suporte.");
         await logOut();
       }
     } catch (error: any) {
@@ -484,6 +506,18 @@ export default function App() {
     }
   };
 
+  const handleStartRecording = async () => {
+    if (activeChannel && currentUser) {
+      await startRecordingStatus(activeChannel.id, currentUser.uid, currentUser.displayName);
+    }
+  };
+
+  const handleStopRecording = async () => {
+    if (activeChannel && currentUser) {
+      await stopRecordingStatus(activeChannel.id, currentUser.uid);
+    }
+  };
+
   const handleSelectUser = async (selectedUser: UserProfile) => {
     if (!currentUser) return;
     const newChannel = await createPrivateChannel(currentUser.uid, selectedUser.uid);
@@ -494,8 +528,8 @@ export default function App() {
     if (!activeChannel || !currentUser) return;
     
     try {
-      // Ensure participants include both users for private channels
-      const participants = activeChannel.type === 'private' 
+      // Ensure participants include all members for private/group channels
+      const participants = (activeChannel.type === 'private' || activeChannel.type === 'private_group')
         ? activeChannel.members 
         : [currentUser.uid]; // For public channels, just the caller for now
 
@@ -801,8 +835,11 @@ export default function App() {
             isLoadingMessages={isLoadingMessages}
             allUsers={allUsers}
             typingUsers={typingUsers}
+            recordingUsers={recordingUsers}
             onStartTyping={handleStartTyping}
             onStopTyping={handleStopTyping}
+            onStartRecording={handleStartRecording}
+            onStopRecording={handleStopRecording}
             onSelectUser={handleSelectUser}
             activeCall={activeCall}
             onStartCall={handleStartCall}

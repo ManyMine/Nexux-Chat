@@ -150,7 +150,7 @@ export const ChannelHeader: React.FC<ChannelHeaderProps> = ({
         <button className="hover:text-text-primary transition-colors hidden sm:block"><Bell className="w-5 h-5" /></button>
         <button 
           onClick={onShowUsers}
-          className={`hover:text-text-primary transition-colors ${showUsers ? 'text-text-primary' : ''}`}
+          className={`p-1.5 rounded transition-colors hover:bg-bg-secondary ${showUsers ? 'text-text-primary bg-bg-secondary' : 'text-text-muted hover:text-text-primary'}`}
         >
           <Users className="w-5 h-5" />
         </button>

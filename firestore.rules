@@ -19,7 +19,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow create: if isAuthenticated() && isOwner(userId);
       allow update: if isAuthenticated() && (isOwner(userId) || isAdmin());
       allow delete: if isAdmin() || isOwner(userId);
@@ -31,6 +31,10 @@ service cloud.firestore {
       allow update: if isAuthenticated();
       allow delete: if isAdmin() || (isAuthenticated() && resource.data.createdBy == request.auth.uid);
       
+      match /messages {
+        allow list: if isAuthenticated();
+      }
+
       match /messages/{messageId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated();
@@ -40,7 +44,11 @@ service cloud.firestore {
     }
     
     match /typing/{channelId} {
-      allow read, write: if isAuthenticated();
+      allow read, write, list: if isAuthenticated();
+    }
+
+    match /recording/{channelId} {
+      allow read, write, list: if isAuthenticated();
     }
 
     match /statuses/{statusId} {

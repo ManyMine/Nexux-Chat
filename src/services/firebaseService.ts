@@ -42,7 +42,7 @@ import {
 } from 'firebase/storage';
 import { auth, db, storage } from '../firebase';
 import { UserProfile, Channel, Message, Call, Status, StatusComment } from '../types';
-import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, CALLS_COLLECTION, STATUSES_COLLECTION, STATUS_PRESENCE_COLLECTION, DRAFTS_COLLECTION, REPORTS_COLLECTION, NOTIFICATIONS_COLLECTION } from '../constants';
+import { CHANNELS_COLLECTION, MESSAGES_COLLECTION, USERS_COLLECTION, TYPING_COLLECTION, RECORDING_COLLECTION, CALLS_COLLECTION, STATUSES_COLLECTION, STATUS_PRESENCE_COLLECTION, DRAFTS_COLLECTION, REPORTS_COLLECTION, NOTIFICATIONS_COLLECTION } from '../constants';
 import { saveStatus } from './db';
 export { deleteField };
 
@@ -156,6 +156,37 @@ export const getTypingUsers = (channelId: string, callback: (users: string[]) =>
   });
 };
 
+export const startRecordingStatus = async (channelId: string, userId: string, displayName: string) => {
+  try {
+    await setDoc(doc(db, RECORDING_COLLECTION, channelId), { [userId]: displayName }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, `${RECORDING_COLLECTION}/${channelId}`);
+    throw error;
+  }
+};
+
+export const stopRecordingStatus = async (channelId: string, userId: string) => {
+  try {
+    await updateDoc(doc(db, RECORDING_COLLECTION, channelId), { [userId]: deleteField() });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${RECORDING_COLLECTION}/${channelId}`);
+    throw error;
+  }
+};
+
+export const getRecordingUsers = (channelId: string, callback: (users: string[]) => void) => {
+  return onSnapshot(doc(db, RECORDING_COLLECTION, channelId), (snapshot) => {
+    const data = snapshot.data();
+    if (data) {
+      callback(Object.values(data));
+    } else {
+      callback([]);
+    }
+  }, (error) => {
+    handleFirestoreError(error, OperationType.LIST, `${RECORDING_COLLECTION}/${channelId}`);
+  });
+};
+
 // --- Error Handling ---
 
 enum OperationType {
@@ -204,9 +235,19 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     },
     operationType,
     path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  };
+
+  const safeStringify = (obj: any) => {
+    try {
+      return JSON.stringify(obj);
+    } catch (e) {
+      return JSON.stringify({ error: "Circular structure encountered or serialization failed" });
+    }
+  };
+
+  const errorString = safeStringify(errInfo);
+  console.error('Firestore Error: ', errorString);
+  throw new Error(errorString);
 }
 
 // --- Auth ---
@@ -603,12 +644,37 @@ export const updateUserProfile = async (userId: string, data: Partial<UserProfil
       }
       if (data.photoURL) {
         await updateProfile(user, { photoURL: data.photoURL });
+        // Sincronizar foto de perfil em todas as mensagens
+        await syncUserPhotoInMessages(userId, data.photoURL);
       }
     }
     await updateDoc(doc(db, USERS_COLLECTION, userId), data);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${userId}`);
     throw error;
+  }
+};
+
+export const syncUserPhotoInMessages = async (userId: string, newPhotoURL: string | null) => {
+  try {
+    const channelsSnapshot = await getDocs(collection(db, CHANNELS_COLLECTION));
+    const channelIds = channelsSnapshot.docs.map(doc => doc.id);
+
+    for (const channelId of channelIds) {
+      const messagesQuery = query(collection(db, CHANNELS_COLLECTION, channelId, MESSAGES_COLLECTION), where('senderId', '==', userId));
+      const messagesSnapshot = await getDocs(messagesQuery);
+      
+      if (!messagesSnapshot.empty) {
+        const batch = writeBatch(db);
+        messagesSnapshot.forEach(doc => {
+          batch.update(doc.ref, { senderPhoto: newPhotoURL });
+        });
+        await batch.commit();
+      }
+    }
+    console.log("Sincronização de foto de perfil concluída.");
+  } catch (error) {
+    console.error("Erro na sincronização de foto de perfil:", error);
   }
 };
 
