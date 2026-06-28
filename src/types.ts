@@ -10,6 +10,7 @@ export interface UserProfile {
   isDeactivated?: boolean;
   isPrivate?: boolean;
   canChat?: boolean;
+  denyDMs?: boolean;
   securityQuestion?: string;
   securityAnswer?: string;
   cpf?: string;
@@ -134,6 +135,8 @@ export interface Call {
   callerId: string;
   callerName: string;
   callerPhoto?: string;
+  calleeId?: string;
+  calleeName?: string;
   participants: string[];
   status: 'calling' | 'ongoing' | 'ended' | 'declined';
   type: 'voice' | 'video';

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Hash, Send, PlusCircle, Gift, Sticker, Smile, SmilePlus, Trash2, CheckCheck, Pencil, X, Copy, MessageSquare, Edit3, VolumeX, Users, PlusSquare, Shield, ShieldOff, Search, Languages, CheckSquare, Square, Download, Loader2, Pin, PinOff, Eye, Sparkles, Paperclip, ChevronUp, ChevronDown, Mic, StopCircle } from 'lucide-react';
+import { Hash, Send, PlusCircle, Gift, Sticker, Smile, SmilePlus, Trash2, CheckCheck, Pencil, X, Copy, MessageSquare, Edit3, VolumeX, Users, PlusSquare, Shield, ShieldOff, Search, Languages, CheckSquare, Square, Download, Loader2, Pin, PinOff, Eye, Sparkles, Paperclip, ChevronUp, ChevronDown, Mic, StopCircle, FileText, Upload } from 'lucide-react';
 import { Call, Channel, Message, UserProfile } from '@/src/types';
 import { cn } from '@/src/lib/utils';
 import { DEFAULT_AVATAR } from '@/src/constants';
@@ -151,6 +151,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [pendingMessageFiles, setPendingMessageFiles] = useState<File[]>([]);
+  const [pendingMessageFilePreviews, setPendingMessageFilePreviews] = useState<string[]>([]);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, message: Message } | null>(null);
   const [userContextMenu, setUserContextMenu] = useState<{ x: number, y: number, user: UserProfile } | null>(null);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
@@ -194,27 +197,13 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     const fetchUsers = async () => {
       try {
         const users = await getUsers();
-        
-        // Filter users based on privacy settings
-        const conversationUserIds = new Set(
-          channels
-            .filter(c => c.type === 'private')
-            .flatMap(c => c.members || [])
-        );
-
-        const filteredUsers = users.filter(u => 
-          u.uid === currentUser.uid || 
-          !u.isPrivate || 
-          conversationUserIds.has(u.uid)
-        );
-
-        setAllUsers(filteredUsers);
+        setAllUsers(users);
       } catch (error) {
         console.error("Error fetching users:", error);
       }
     };
     fetchUsers();
-  }, [channels, currentUser.uid]);
+  }, [currentUser.uid]);
 
   useEffect(() => {
     const q = query(collection(db, STATUSES_COLLECTION));
@@ -400,9 +389,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       return;
     }
 
-    if (input.trim() || fileInputRef.current?.files?.[0]) {
-      const file = fileInputRef.current?.files?.[0];
+    if (input.trim() || pendingMessageFiles.length > 0) {
+      const filesToSend = [...pendingMessageFiles];
       const trimmedInput = input.trim();
+
+      // Clear states immediately
+      setPendingMessageFiles([]);
+      setPendingMessageFilePreviews(prev => {
+        prev.forEach(url => {
+          if (url) URL.revokeObjectURL(url);
+        });
+        return [];
+      });
+      setInput('');
+      onStopTyping();
+      if (activeChannel) {
+        deleteDraft(currentUser.uid, activeChannel.id);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
 
       // Handle Slash Commands
       if (trimmedInput.startsWith('/')) {
@@ -412,19 +416,16 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         switch (cmd) {
           case '/help':
             setShowHelpModal(true);
-            setInput('');
             return;
           case '/mute':
             if (activeChannel) {
               onMuteChannels([activeChannel.id], true);
-              setInput('');
               return;
             }
             break;
           case '/unmute':
             if (activeChannel) {
               onMuteChannels([activeChannel.id], false);
-              setInput('');
               return;
             }
             break;
@@ -432,40 +433,32 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             if (activeChannel && messages.length > 0) {
               const lastMsg = messages[messages.length - 1];
               togglePinMessage(activeChannel.id, lastMsg.id, true, currentUser.uid);
-              setInput('');
               return;
             }
             break;
           case '/status':
             onOpenStatusForUser(currentUser.uid);
-            setInput('');
             return;
           case '/shrug':
             onSendMessage('¯\\_(ツ)_/¯');
-            setInput('');
             return;
           case '/tableflip':
             onSendMessage('(╯°□°）╯︵ ┻━┻');
-            setInput('');
             return;
           case '/unflip':
             onSendMessage('┬─┬ノ( º _ ºノ)');
-            setInput('');
             return;
           case '/me':
             const action = args.join(' ');
             if (action) {
               onSendMessage(`* ${currentUser.displayName} ${action} *`);
-              setInput('');
             }
             return;
           case '/invite':
             setShowAddMembers(true);
-            setInput('');
             return;
           case '/settings':
             setShowSettings(true);
-            setInput('');
             return;
           case '/search':
             const queryStr = args.join(' ');
@@ -473,7 +466,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               setSearchQuery(queryStr);
               setIsSearching(true);
             }
-            setInput('');
             return;
           case '/leave':
             if (activeChannel && activeChannel.type !== 'private') {
@@ -483,7 +475,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             }
             return;
           case '/clear':
-            setInput('');
             return;
           case '/gem':
             const prompt = args.join(' ');
@@ -491,9 +482,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               showToast("Por favor, forneça um prompt para o Gemini. Ex: /gem como está o tempo?", "info");
               return;
             }
-            onSendMessage(input, file).finally(() => setIsUploading(false));
-            setInput('');
-            onStopTyping();
+            setIsUploading(true);
+            const firstFile = filesToSend[0];
+            onSendMessage(prompt, firstFile).finally(() => setIsUploading(false));
             chatWithGemini(prompt).then(response => {
               onSendMessage(`Gemini: ${response}`);
             });
@@ -501,14 +492,27 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         }
       }
 
-      if (file) setIsUploading(true);
-      onSendMessage(input, file).finally(() => setIsUploading(false));
-      setInput('');
-      onStopTyping();
-      if (activeChannel) {
-        deleteDraft(currentUser.uid, activeChannel.id);
-      }
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      // If we are sending standard messages/files
+      setIsUploading(true);
+      (async () => {
+        try {
+          if (filesToSend.length > 0) {
+            // Send each file
+            for (let i = 0; i < filesToSend.length; i++) {
+              const currentFile = filesToSend[i];
+              const contentForThisMessage = (i === 0) ? trimmedInput : '';
+              await onSendMessage(contentForThisMessage, currentFile);
+            }
+          } else if (trimmedInput) {
+            // Just send the text message
+            await onSendMessage(trimmedInput);
+          }
+        } catch (error) {
+          console.error("Error sending files/message:", error);
+        } finally {
+          setIsUploading(false);
+        }
+      })();
     }
   };
 
@@ -844,6 +848,36 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   return (
     <div 
       className={cn("flex-1 flex flex-col h-full overflow-hidden relative", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDraggingFile(true);
+      }}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        setIsDraggingFile(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        if (e.relatedTarget === null) {
+          setIsDraggingFile(false);
+        }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDraggingFile(false);
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) {
+          const filesArray = Array.from(files);
+          setPendingMessageFiles(prev => [...prev, ...filesArray]);
+          const newPreviews = filesArray.map(file => {
+            if (file.type.startsWith('image/')) {
+              return URL.createObjectURL(file);
+            }
+            return '';
+          });
+          setPendingMessageFilePreviews(prev => [...prev, ...newPreviews]);
+        }
+      }}
       onClick={() => {
         setContextMenu(null);
         setUserContextMenu(null);
@@ -853,6 +887,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         setReactionPickerMessageId(null);
       }}
     >
+      <AnimatePresence>
+        {isDraggingFile && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onDragLeave={() => setIsDraggingFile(false)}
+            className="absolute inset-0 z-50 bg-color-brand/85 backdrop-blur-sm flex flex-col items-center justify-center p-6 border-4 border-dashed border-white m-4 rounded-2xl pointer-events-auto"
+          >
+            <div className="flex flex-col items-center justify-center space-y-4 text-white">
+              <div className="p-4 bg-white/20 rounded-full animate-bounce">
+                <Upload className="w-12 h-12 text-white" />
+              </div>
+              <h2 className="text-2xl font-bold">Solte para importar no chat!</h2>
+              <p className="text-sm opacity-90">Solte seus arquivos aqui para enviá-los de forma imediata e simplificada como no Discord.</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Channel Background Layer */}
       {activeChannel?.background && (
         <div 
@@ -1570,14 +1624,58 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                  </div>
               </div>
             )}
-            {editingMessageId && (
-              <div className="flex items-center justify-between bg-bg-secondary px-4 py-2 rounded-t-lg border-b border-border-primary">
-                <span className="text-xs text-text-secondary">Editando mensagem...</span>
-                <button onClick={handleCancelEdit} className="text-text-muted hover:text-text-secondary">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
+             {pendingMessageFiles.length > 0 && (
+               <div className="flex flex-wrap gap-3 bg-bg-secondary/80 backdrop-blur px-4 py-3 rounded-t-xl border-b border-border-primary/50 animate-in fade-in slide-in-from-bottom-4 overflow-y-auto max-h-40">
+                 {pendingMessageFiles.map((file, idx) => {
+                   const preview = pendingMessageFilePreviews[idx];
+                   return (
+                     <div key={idx} className="relative p-1 bg-bg-tertiary rounded-lg border border-border-primary flex items-center justify-center w-20 h-20 shrink-0 group shadow-sm">
+                       {preview ? (
+                         <img 
+                           src={preview} 
+                           alt="Preview" 
+                           className="w-full h-full object-cover rounded" 
+                           referrerPolicy="no-referrer"
+                         />
+                       ) : (
+                         <div className="flex flex-col items-center justify-center text-center p-1 w-full h-full">
+                           <FileText className="w-8 h-8 text-color-brand" />
+                           <span className="text-[9px] text-text-muted uppercase font-bold mt-1 max-w-[65px] truncate">
+                             {file.name.split('.').pop() || 'FILE'}
+                           </span>
+                         </div>
+                       )}
+                       <button 
+                         type="button"
+                         onClick={() => {
+                           setPendingMessageFiles(prev => prev.filter((_, i) => i !== idx));
+                           setPendingMessageFilePreviews(prev => {
+                             const previewToRevoke = prev[idx];
+                             if (previewToRevoke) URL.revokeObjectURL(previewToRevoke);
+                             return prev.filter((_, i) => i !== idx);
+                           });
+                         }}
+                         className="absolute -top-1.5 -right-1.5 bg-red-500 hover:bg-red-600 text-white p-1 rounded-full shadow-lg transition-transform hover:scale-105 select-none animate-in scale-in"
+                         title="Remover arquivo"
+                       >
+                         <X className="w-3.5 h-3.5" />
+                       </button>
+                       <div className="absolute inset-x-0 bottom-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded-b text-[8px] text-center text-white truncate px-1">
+                         {(file.size / 1024).toFixed(0)} KB
+                       </div>
+                     </div>
+                   );
+                 })}
+               </div>
+             )}
+             {editingMessageId && (
+               <div className="flex items-center justify-between bg-bg-secondary px-4 py-2 rounded-t-lg border-b border-border-primary">
+                 <span className="text-xs text-text-secondary">Editando mensagem...</span>
+                 <button onClick={handleCancelEdit} className="text-text-muted hover:text-text-secondary">
+                   <X className="w-4 h-4" />
+                 </button>
+               </div>
+             )}
             <form 
               onSubmit={handleSubmit}
               className={cn(
@@ -1614,63 +1712,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               )}
               <input
                 type="file"
+                multiple
                 ref={fileInputRef}
                 className="hidden"
-                onChange={async (e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    let file = e.target.files[0];
-                    setIsUploading(true);
-                    
-                    try {
-                      // Convert image to PNG if it's an image
-                      if (file.type.startsWith('image/') && file.type !== 'image/png') {
-                        file = await new Promise<File>((resolve) => {
-                          const img = new Image();
-                          img.onload = () => {
-                            const MAX_WIDTH = 1280;
-                            const MAX_HEIGHT = 1280;
-                            let width = img.width;
-                            let height = img.height;
-
-                            if (width > height) {
-                              if (width > MAX_WIDTH) {
-                                height *= MAX_WIDTH / width;
-                                width = MAX_WIDTH;
-                              }
-                            } else {
-                              if (height > MAX_HEIGHT) {
-                                width *= MAX_HEIGHT / height;
-                                height = MAX_HEIGHT;
-                              }
-                            }
-
-                            const canvas = document.createElement('canvas');
-                            canvas.width = width;
-                            canvas.height = height;
-                            const ctx = canvas.getContext('2d');
-                            if (ctx) {
-                              ctx.drawImage(img, 0, 0, width, height);
-                              canvas.toBlob((blob) => {
-                                if (blob) {
-                                  resolve(new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".png", { type: 'image/png' }));
-                                } else {
-                                  resolve(file);
-                                }
-                              }, 'image/png');
-                            } else {
-                              resolve(file);
-                            }
-                          };
-                          img.onerror = () => resolve(file);
-                          img.src = URL.createObjectURL(file);
-                        });
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    const filesArray = Array.from(e.target.files);
+                    setPendingMessageFiles(prev => [...prev, ...filesArray]);
+                    const newPreviews = filesArray.map(file => {
+                      if (file.type.startsWith('image/')) {
+                        return URL.createObjectURL(file);
                       }
-
-                      await onSendMessage('', file);
-                    } finally {
-                      setIsUploading(false);
-                      e.target.value = ''; // Reset input
-                    }
+                      return '';
+                    });
+                    setPendingMessageFilePreviews(prev => [...prev, ...newPreviews]);
+                    e.target.value = '';
                   }
                 }}
               />
@@ -1687,6 +1743,31 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     if (!e.currentTarget.disabled) handleSubmit(e);
+                  }
+                }}
+                onPaste={(e) => {
+                  const items = e.clipboardData?.items;
+                  if (items) {
+                    const filesArray: File[] = [];
+                    for (let i = 0; i < items.length; i++) {
+                      if (items[i].type.indexOf('image') !== -1 || items[i].kind === 'file') {
+                        const file = items[i].getAsFile();
+                        if (file) {
+                          filesArray.push(file);
+                        }
+                      }
+                    }
+                    if (filesArray.length > 0) {
+                      e.preventDefault();
+                      setPendingMessageFiles(prev => [...prev, ...filesArray]);
+                      const newPreviews = filesArray.map(file => {
+                        if (file.type.startsWith('image/')) {
+                          return URL.createObjectURL(file);
+                        }
+                        return '';
+                      });
+                      setPendingMessageFilePreviews(prev => [...prev, ...newPreviews]);
+                    }
                   }
                 }}
                 placeholder={currentUser.canChat === false && currentUser.role !== 'admin' ? "Chat desativado para você" : (editingMessageId ? "Editar mensagem..." : `Conversar em #${activeChannel.name}`)}
@@ -1830,11 +1911,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 )}
                 <button 
                   type="submit" 
-                  disabled={(pendingAudioFile ? false : isUploading) || (editingMessageId ? !editContent.trim() : !input.trim())}
+                  disabled={(pendingAudioFile ? false : isUploading) || (editingMessageId ? !editContent.trim() : (!input.trim() && pendingMessageFiles.length === 0))}
                   onClick={pendingAudioFile ? sendPendingAudio : undefined}
                   className={cn(
                     "p-2 md:p-1.5 rounded-full transition-all",
-                    (pendingAudioFile || (editingMessageId ? editContent.trim() : input.trim())) ? "bg-color-brand text-white" : "text-text-muted",
+                    (pendingAudioFile || (editingMessageId ? editContent.trim() : (input.trim() || pendingMessageFiles.length > 0))) ? "bg-color-brand text-white" : "text-text-muted",
                     isUploading && "bg-bg-tertiary"
                   )}
                 >
@@ -1884,6 +1965,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 users={[currentUser, ...allUsers.filter(u => u.uid !== currentUser.uid)].filter(u => activeChannel.type === 'public' || activeChannel.members.includes(u.uid))} 
                 isOpen={showUsers} 
                 currentUser={currentUser}
+                channels={channels}
                 onContextMenu={(e, user) => {
                   e.preventDefault();
                   setUserContextMenu({ x: e.clientX, y: e.clientY, user });

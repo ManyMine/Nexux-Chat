@@ -328,7 +328,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
       <UserSearch 
         isOpen={isUserSearchOpen}
         onClose={() => setIsUserSearchOpen(false)}
-        allUsers={filteredUsers}
+        allUsers={allUsers}
         onSelectUser={onSelectUser}
       />
 

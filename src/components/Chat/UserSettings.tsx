@@ -13,7 +13,7 @@ import * as z from 'zod';
 import { useAccessibility } from '@/src/contexts/AccessibilityContext';
 import { useToast } from '@/src/context/ToastContext';
 
-import { updateUserPrivacy, updateUserProfile, updateUserPassword, updateUserEmail, uploadFile, deactivateAccount, deleteAccount } from '@/src/services/firebaseService';
+import { updateUserPrivacy, updateUserProfile, updateUserPassword, updateUserEmail, uploadFile, deactivateAccount, deleteAccount, syncUserPhotoInMessages } from '@/src/services/firebaseService';
 
 interface UserSettingsProps {
   isOpen: boolean;
@@ -92,15 +92,37 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
     }
   });
 
-  const { register: registerProfile, handleSubmit: handleSubmitProfile, formState: { errors: profileErrors } } = useForm({
+  const { register: registerProfile, handleSubmit: handleSubmitProfile, reset: resetProfile, formState: { errors: profileErrors } } = useForm({
     resolver: zodResolver(profileSchema),
     defaultValues: {
       displayName: currentUser.displayName || '',
-      username: currentUser.username || (currentUser.displayName ? currentUser.displayName.toLowerCase().replace(/\s+/g, '_') : ''),
-      about: '', 
+      username: currentUser.username || (currentUser.displayName 
+        ? currentUser.displayName.toLowerCase()
+            .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove accents
+            .replace(/[^a-zA-Z0-9_]/g, '')                 // remove non-alphanumeric
+            .substring(0, 15)
+        : ''),
+      about: currentUser.about || '', 
       status: currentUser.status || 'auto',
     }
   });
+
+  useEffect(() => {
+    if (isOpen && currentUser) {
+      resetProfile({
+        displayName: currentUser.displayName || '',
+        username: currentUser.username || (currentUser.displayName 
+          ? currentUser.displayName.toLowerCase()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-zA-Z0-9_]/g, '')
+              .substring(0, 15)
+          : ''),
+        about: currentUser.about || '',
+        status: currentUser.status || 'auto',
+      });
+      setLocalBackground(currentUser.background);
+    }
+  }, [isOpen, currentUser, resetProfile]);
 
   const onAccountSubmit = async (data: any) => {
     setIsUpdating(true);
@@ -136,11 +158,22 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
     setUpdateError(null);
     setUpdateSuccess(null);
     try {
+      let photoURL = currentUser.photoURL;
+      
+      // Auto-upload avatar photo if a changed file is pending in preview
+      if (pendingFile) {
+        const path = `avatars/${currentUser.uid}_${Date.now()}`;
+        photoURL = await uploadFile(pendingFile, path);
+        setPreviewPhotoURL(null);
+        setPendingFile(null);
+      }
+
       await updateUserProfile(currentUser.uid, {
         displayName: data.displayName,
         username: data.username,
         about: data.about,
         status: data.status,
+        photoURL: photoURL || undefined
       });
       setUpdateSuccess('Perfil atualizado com sucesso!');
     } catch (error: any) {
@@ -164,21 +197,62 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
     }
   };
 
+  const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUpdating(true);
+    // Safety check for file size (5MB for images, 800KB for GIFs specifically to respect Firestore limits)
+    if (file.type === 'image/gif' && file.size > 800 * 1024) {
+      showToast('O arquivo GIF é muito grande (máximo 800KB para animação fluida).', 'error');
+      return;
+    } else if (file.size > 5 * 1024 * 1024) {
+      showToast('A imagem é muito grande. O limite é 5MB.', 'error');
+      return;
+    }
+
+    setPreviewPhotoURL(URL.createObjectURL(file));
+    setPendingFile(file);
+    setUpdateSuccess('Avatar pré-visualizado! Clique em "Salvar Perfil" para confirmar.');
+  };
+
+  const saveAvatar = async () => {
+    if (!pendingFile) return;
+
+    setIsSavingAvatar(true);
     setUpdateError(null);
+    setUpdateSuccess(null); // Clear previous messages
     try {
       const path = `avatars/${currentUser.uid}_${Date.now()}`;
-      const photoURL = await uploadFile(file, path);
+      const photoURL = await uploadFile(pendingFile, path);
+      
+      // Safe to proceed, component is mounted
       await updateUserProfile(currentUser.uid, { photoURL });
-      setUpdateSuccess('Foto de perfil atualizada!');
+      
+      // Fire-and-forget sync for messages since it shouldn't block the UI
+      syncUserPhotoInMessages(currentUser.uid, photoURL).catch(console.error);
+      
+      if (!isMounted.current) return;
+
+      setUpdateSuccess('Sua foto foi atualizada com sucesso!');
+      setPreviewPhotoURL(null);
+      setPendingFile(null);
     } catch (error: any) {
+      if (!isMounted.current) return;
       setUpdateError(error.message || 'Erro ao enviar foto');
     } finally {
-      setIsUpdating(false);
+      if (!isMounted.current) return;
+      setIsSavingAvatar(false);
     }
   };
 
@@ -487,10 +561,15 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                   
                   <div className="bg-bg-tertiary rounded-lg p-6 space-y-8">
                     {/* Avatar Section */}
+                    {updateSuccess && (
+                      <div className="bg-green-500/10 text-green-500 p-3 rounded text-sm mb-4">
+                        {updateSuccess}
+                      </div>
+                    )}
                     <div className="flex items-center space-x-6">
                       <div className="relative group">
                         <img 
-                          src={currentUser.photoURL || DEFAULT_AVATAR} 
+                          src={previewPhotoURL || currentUser.photoURL || DEFAULT_AVATAR} 
                           alt="Avatar" 
                           className="w-24 h-24 rounded-full object-cover border-4 border-bg-primary bg-bg-primary"
                           referrerPolicy="no-referrer"
@@ -510,9 +589,18 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                         />
                       </div>
                       <div className="space-y-2">
+                        {previewPhotoURL && (
+                          <button
+                            onClick={saveAvatar}
+                            disabled={isSavingAvatar}
+                            className="bg-color-brand hover:bg-color-brand/80 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors mb-2 w-full"
+                          >
+                            {isSavingAvatar ? 'Salvando...' : 'Salvar Perfil'}
+                          </button>
+                        )}
                         <button 
                           onClick={() => fileInputRef.current?.click()}
-                          className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-4 py-1.5 rounded text-sm font-medium transition-colors"
+                          className="bg-bg-secondary hover:bg-bg-tertiary text-text-primary px-4 py-1.5 rounded text-sm font-medium transition-colors w-full"
                         >
                           Mudar Avatar
                         </button>
@@ -600,6 +688,27 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                         <div className={cn(
                           "w-4 h-4 bg-white rounded-full absolute top-1 transition-all",
                           currentUser.isPrivate ? "right-1" : "left-1"
+                        )} />
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-border-primary my-2" />
+
+                    <div className="flex items-center justify-between bg-bg-tertiary p-4 rounded-lg">
+                      <div>
+                        <p className="text-text-primary font-medium">Bloquear Mensagens Diretas (DMs)</p>
+                        <p className="text-sm text-text-muted">Não aceitar novas conversas de de mensagens diretas de outros usuários.</p>
+                      </div>
+                      <div 
+                        onClick={() => updateUserProfile(currentUser.uid, { denyDMs: !currentUser.denyDMs })}
+                        className={cn(
+                          "w-10 h-6 rounded-full relative cursor-pointer transition-colors",
+                          currentUser.denyDMs ? "bg-[#23a559]" : "bg-[#80848e]"
+                        )}
+                      >
+                        <div className={cn(
+                          "w-4 h-4 bg-white rounded-full absolute top-1 transition-all",
+                          currentUser.denyDMs ? "right-1" : "left-1"
                         )} />
                       </div>
                     </div>

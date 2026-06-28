@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, ShieldAlert, Ban, Mail, CheckCircle2, Loader2, AlertCircle, Trash2, Search, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Shield, ShieldAlert, Ban, Mail, CheckCircle2, Loader2, AlertCircle, Trash2, Search, X, Camera } from 'lucide-react';
 import { UserProfile } from '@/src/types';
-import { getUsers, toggleUserBlock, updateUserRole, resetPassword, adminDeleteUser } from '@/src/services/firebaseService';
+import { getUsers, toggleUserBlock, updateUserRole, resetPassword, adminDeleteUser, uploadFile, updateUserProfile } from '@/src/services/firebaseService';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,10 +17,48 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
+  const [selectedAdminUser, setSelectedAdminUser] = useState<UserProfile | null>(null);
+  const adminFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchUsers();
   }, []);
+
+  const handleAdminAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedAdminUser) return;
+
+    if (file.type === 'image/gif' && file.size > 800 * 1024) {
+      setMessage({ type: 'error', text: 'O arquivo GIF é muito grande (máximo de 800KB para garantir imagens animadas fluidas).' });
+      return;
+    } else if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'A imagem é muito grande. O limite é de 5MB.' });
+      return;
+    }
+
+    try {
+      setActionLoading(`avatar-${selectedAdminUser.uid}`);
+      setMessage(null);
+      
+      const path = `avatars/${selectedAdminUser.uid}_${Date.now()}`;
+      const photoURL = await uploadFile(file, path);
+      
+      await updateUserProfile(selectedAdminUser.uid, { photoURL });
+      
+      setUsers(prev => prev.map(u => u.uid === selectedAdminUser.uid ? { ...u, photoURL } : u));
+      setMessage({ type: 'success', text: `Avatar de ${selectedAdminUser.displayName} de email/usuário alterado e sincronizado com sucesso!` });
+    } catch (error: any) {
+      console.error("Error setting user avatar by admin:", error);
+      setMessage({ type: 'error', text: error.message || 'Erro ao alterar avatar do usuário.' });
+    } finally {
+      setActionLoading(null);
+      setSelectedAdminUser(null);
+      if (adminFileInputRef.current) {
+        adminFileInputRef.current.value = '';
+      }
+      setTimeout(() => setMessage(null), 3500);
+    }
+  };
 
   const filteredUsers = users.filter(user => 
     user.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -211,13 +249,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
             {filteredUsers.length > 0 ? filteredUsers.map(user => (
               <div key={user.uid} className="p-4 flex items-center justify-between hover:bg-bg-primary/50 transition-colors">
                 <div className="flex items-center space-x-3">
-                  <div className="relative">
-                    <img 
-                      src={user.photoURL || DEFAULT_AVATAR} 
-                      alt={user.displayName}
-                      className={cn("w-10 h-10 rounded-full object-cover", user.isBlocked && "opacity-50 grayscale")}
-                      referrerPolicy="no-referrer"
-                    />
+                  <div 
+                    className={cn(
+                      "relative group", 
+                      (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com') ? "" : "cursor-pointer"
+                    )}
+                    title={user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com' ? undefined : "Clique para alterar o avatar deste usuário"}
+                    onClick={() => {
+                      if (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com') return;
+                      setSelectedAdminUser(user);
+                      setTimeout(() => adminFileInputRef.current?.click(), 100);
+                    }}
+                  >
+                    {actionLoading === `avatar-${user.uid}` ? (
+                      <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center">
+                        <Loader2 className="w-5 h-5 text-[#5865f2] animate-spin" />
+                      </div>
+                    ) : (
+                      <>
+                        <img 
+                          src={user.photoURL || DEFAULT_AVATAR} 
+                          alt={user.displayName}
+                          className={cn("w-10 h-10 rounded-full object-cover transition-transform group-hover:scale-105", user.isBlocked && "opacity-50 grayscale")}
+                          referrerPolicy="no-referrer"
+                        />
+                        <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Camera className="w-4 h-4 text-white" />
+                        </div>
+                      </>
+                    )}
                     {user.role === 'admin' && (
                       <div className="absolute -bottom-1 -right-1 bg-bg-secondary rounded-full p-0.5">
                         <Shield className="w-3.5 h-3.5 text-[#f1c40f]" />
@@ -287,6 +347,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
                   </button>
 
                   <button
+                    onClick={() => {
+                      setSelectedAdminUser(user);
+                      setTimeout(() => adminFileInputRef.current?.click(), 100);
+                    }}
+                    disabled={actionLoading !== null || (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com')}
+                    className="p-2 text-text-muted hover:text-[#5865f2] hover:bg-[#5865f2]/10 rounded transition-colors disabled:opacity-50"
+                    title="Alterar Avatar"
+                  >
+                    {actionLoading === `avatar-${user.uid}` ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                  </button>
+
+                  <button
                     onClick={() => handleDeleteUser(user)}
                     disabled={actionLoading !== null || user.uid === currentUser.uid || (user.role === 'admin' && currentUser.email !== 'belepuff@gmail.com')}
                     className="p-2 text-text-muted hover:text-[#f23f42] hover:bg-[#f23f42]/10 rounded transition-colors disabled:opacity-50"
@@ -303,6 +375,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
             )}
           </div>
         )}
+        <input 
+          type="file" 
+          ref={adminFileInputRef} 
+          onChange={handleAdminAvatarChange} 
+          style={{ display: 'none' }} 
+          accept="image/*,image/gif" 
+        />
       </div>
 
       {/* Custom Delete Confirmation Modal */}

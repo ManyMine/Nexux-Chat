@@ -14,13 +14,38 @@ interface UserListProps {
   onUserClick?: (user: UserProfile) => void;
   hiddenStatusUsers?: Set<string>;
   onToggleStatusVisibility?: (userId: string) => void;
+  channels?: any[];
 }
 
-export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, onContextMenu, onUserClick, hiddenStatusUsers, onToggleStatusVisibility }) => {
+const maskName = (name: string) => {
+  if (!name) return "";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length <= 1) {
+    return parts[0];
+  }
+  return `${parts[0]} ******`;
+};
+
+export const UserList: React.FC<UserListProps> = ({ 
+  users, 
+  isOpen, 
+  currentUser, 
+  onContextMenu, 
+  onUserClick, 
+  hiddenStatusUsers, 
+  onToggleStatusVisibility,
+  channels = []
+}) => {
   const [selectedUserProfile, setSelectedUserProfile] = React.useState<UserProfile | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   
   if (!isOpen) return null;
+
+  const hasConversed = React.useCallback((user: UserProfile) => {
+    if (!currentUser || !user) return false;
+    if (user.uid === currentUser.uid) return true;
+    return (channels || []).some(c => c.type === 'private' && c.members?.includes(user.uid));
+  }, [channels, currentUser]);
 
   const visibleUsers = users;
   const onlineUsers = visibleUsers.filter(u => u.status === 'online' || u.status === 'auto');
@@ -63,11 +88,15 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
                       user={user} 
                       onContextMenu={onContextMenu} 
                       onUserClick={(u) => {
+                        const conversed = hasConversed(u);
+                        const privateActive = u.isPrivate !== false;
+                        if (privateActive && !conversed) return;
                         setSelectedUserProfile(u);
                         onUserClick?.(u);
                       }} 
                       isHidden={hiddenStatusUsers?.has(user.uid)}
                       onToggleVisibility={() => onToggleStatusVisibility?.(user.uid)}
+                      hasConversed={hasConversed(user)}
                     />
                   ))}
                 </motion.div>
@@ -99,11 +128,15 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
                       user={user} 
                       onContextMenu={onContextMenu} 
                       onUserClick={(u) => {
+                        const conversed = hasConversed(u);
+                        const privateActive = u.isPrivate !== false;
+                        if (privateActive && !conversed) return;
                         setSelectedUserProfile(u);
                         onUserClick?.(u);
                       }} 
                       isHidden={hiddenStatusUsers?.has(user.uid)}
                       onToggleVisibility={() => onToggleStatusVisibility?.(user.uid)}
+                      hasConversed={hasConversed(user)}
                     />
                   ))}
                 </motion.div>
@@ -135,11 +168,15 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
                       user={user} 
                       onContextMenu={onContextMenu} 
                       onUserClick={(u) => {
+                        const conversed = hasConversed(u);
+                        const privateActive = u.isPrivate !== false;
+                        if (privateActive && !conversed) return;
                         setSelectedUserProfile(u);
                         onUserClick?.(u);
                       }} 
                       isHidden={hiddenStatusUsers?.has(user.uid)}
                       onToggleVisibility={() => onToggleStatusVisibility?.(user.uid)}
+                      hasConversed={hasConversed(user)}
                     />
                   ))}
                 </motion.div>
@@ -171,11 +208,15 @@ export const UserList: React.FC<UserListProps> = ({ users, isOpen, currentUser, 
                       user={user} 
                       onContextMenu={onContextMenu} 
                       onUserClick={(u) => {
+                        const conversed = hasConversed(u);
+                        const privateActive = u.isPrivate !== false;
+                        if (privateActive && !conversed) return;
                         setSelectedUserProfile(u);
                         onUserClick?.(u);
                       }} 
                       isHidden={hiddenStatusUsers?.has(user.uid)}
                       onToggleVisibility={() => onToggleStatusVisibility?.(user.uid)}
+                      hasConversed={hasConversed(user)}
                     />
                   ))}
                 </motion.div>
@@ -231,64 +272,76 @@ const UserItem: React.FC<{
   onContextMenu?: (e: React.MouseEvent, user: UserProfile) => void, 
   onUserClick?: (user: UserProfile) => void,
   isHidden?: boolean,
-  onToggleVisibility?: () => void
-}> = ({ user, onContextMenu, onUserClick, isHidden, onToggleVisibility }) => (
-  <div className="flex items-center w-full group">
-    <button 
-      onContextMenu={(e) => onContextMenu?.(e, user)}
-      onClick={() => onUserClick?.(user)}
-      onDoubleClick={() => onUserClick?.(user)}
-      className="flex-1 flex items-center p-2 rounded-md hover:bg-bg-tertiary transition-colors"
-    >
-      <div className="relative mr-3">
-        <img 
-          src={user.photoURL || DEFAULT_AVATAR} 
-          alt={user.displayName}
-          className={cn(
-            "w-8 h-8 rounded-full object-cover",
-            (user.status === 'offline' || user.status === 'invisible') && "grayscale opacity-50"
-          )}
-          referrerPolicy="no-referrer"
-        />
-        <div className={cn(
-          "absolute bottom-0 right-0 w-3 h-3 border-2 border-bg-secondary rounded-full",
-          getStatusColor(user.status)
-        )}>
-          {user.status === 'dnd' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-1.5 h-0.5 bg-bg-secondary rounded-full" />
-            </div>
-          )}
-          {user.status === 'invisible' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-1.5 h-1.5 bg-bg-secondary rounded-full" />
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="flex flex-col items-start min-w-0">
-        <span className={cn(
-          "text-sm font-medium truncate",
-          (user.status === 'offline' || user.status === 'invisible') ? "text-text-muted" : "text-text-secondary"
-        )}>
-          {user.displayName}
-        </span>
-        <span className="text-[10px] text-text-muted capitalize">
-          {getStatusText(user.status)}
-        </span>
-      </div>
-    </button>
-    {onToggleVisibility && (
+  onToggleVisibility?: () => void,
+  hasConversed: boolean
+}> = ({ user, onContextMenu, onUserClick, isHidden, onToggleVisibility, hasConversed }) => {
+  const privateActive = user.isPrivate !== false;
+  const isMasked = privateActive && !hasConversed;
+  
+  const displayPhoto = isMasked ? DEFAULT_AVATAR : (user.photoURL || DEFAULT_AVATAR);
+  const displayName = isMasked ? maskName(user.displayName) : user.displayName;
+
+  return (
+    <div className="flex items-center w-full group">
       <button 
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggleVisibility();
-        }}
-        className="p-2 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted hover:text-text-primary"
-        title={isHidden ? "Mostrar Status" : "Ocultar Status"}
+        onContextMenu={(e) => !isMasked && onContextMenu?.(e, user)}
+        onClick={() => !isMasked && onUserClick?.(user)}
+        onDoubleClick={() => !isMasked && onUserClick?.(user)}
+        className={cn(
+          "flex-1 flex items-center p-2 rounded-md transition-colors text-left",
+          isMasked ? "cursor-default" : "hover:bg-bg-tertiary"
+        )}
       >
-        {isHidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        <div className="relative mr-3 flex-shrink-0">
+          <img 
+            src={displayPhoto} 
+            alt={displayName}
+            className={cn(
+              "w-8 h-8 rounded-full object-cover",
+              (user.status === 'offline' || user.status === 'invisible') && "grayscale opacity-50"
+            )}
+            referrerPolicy="no-referrer"
+          />
+          <div className={cn(
+            "absolute bottom-0 right-0 w-3 h-3 border-2 border-bg-secondary rounded-full",
+            getStatusColor(user.status)
+          )}>
+            {user.status === 'dnd' && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-1.5 h-0.5 bg-bg-secondary rounded-full" />
+              </div>
+            )}
+            {user.status === 'invisible' && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-1.5 h-1.5 bg-bg-secondary rounded-full" />
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-col items-start min-w-0 flex-1">
+          <span className={cn(
+            "text-sm font-medium truncate w-full",
+            (user.status === 'offline' || user.status === 'invisible') ? "text-text-muted" : "text-text-secondary"
+          )}>
+            {displayName}
+          </span>
+          <span className="text-[10px] text-text-muted capitalize">
+            {getStatusText(user.status)}
+          </span>
+        </div>
       </button>
-    )}
-  </div>
-);
+      {onToggleVisibility && !isMasked && (
+        <button 
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleVisibility();
+          }}
+          className="p-2 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted hover:text-text-primary"
+          title={isHidden ? "Mostrar Status" : "Ocultar Status"}
+        >
+          {isHidden ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      )}
+    </div>
+  );
+};

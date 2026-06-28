@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Settings, Wifi, WifiOff, Loader2, Sparkles } from 'lucide-react';
-import { Channel, UserProfile } from '@/src/types';
+import { X, Mic, MicOff, Video, VideoOff, MonitorUp, PhoneOff, Settings, Wifi, WifiOff, Loader2, Sparkles, UserPlus } from 'lucide-react';
+import { Channel, UserProfile, Call } from '@/src/types';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
 import { useToast } from '@/src/context/ToastContext';
+import { InviteMemberModal } from './InviteMemberModal';
+import { UserProfileModal } from './UserProfileModal';
 import { 
   saveOffer, 
   saveAnswer, 
   addIceCandidate, 
   listenForSignaling, 
   listenForIceCandidates,
-  updateCallStatus
+  updateCallStatus,
+  inviteMemberToCall
 } from '@/src/services/firebaseService';
 
 interface CallViewProps {
@@ -39,6 +42,25 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'failed' | 'syncing'>('syncing');
   const [speakingUsers, setSpeakingUsers] = useState<string[]>([]);
+  const [call, setCall] = useState<Call | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [viewingProfileUser, setViewingProfileUser] = useState<UserProfile | null>(null);
+  const [previousParticipants, setPreviousParticipants] = useState<string[]>([]);
+  
+  useEffect(() => {
+    if (call?.participants) {
+      const joined = call.participants.filter(p => !previousParticipants.includes(p) && p !== currentUser.uid);
+      if (joined.length > 0) {
+        joined.forEach(userId => {
+          const user = allUsers.find(u => u.uid === userId);
+          if (user) {
+            showToast(`${user.displayName} entrou na chamada`, "info");
+          }
+        });
+      }
+      setPreviousParticipants(call.participants);
+    }
+  }, [call?.participants]);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,24 +96,44 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
     const initWebRTC = async () => {
       if (pcRef.current) return; // Already initialized
 
+      let stream: MediaStream;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: type === 'video',
+        const videoConstraints = type === 'video' ? { 
+          facingMode: 'user', 
+          width: { ideal: 640 }, 
+          height: { ideal: 480 } 
+        } : false;
+        
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints,
           audio: true
         });
         streamRef.current = stream;
         setConnectionStatus('connecting');
       } catch (err: any) {
-        console.error("Error accessing media devices:", err);
-        let errorMessage = "Erro ao acessar a câmera ou microfone.";
-        if (err.name === 'NotAllowedError') {
-          errorMessage = "Permissão negada. Por favor, permita o acesso à câmera e microfone.";
-        } else if (err.name === 'NotFoundError') {
-          errorMessage = "Câmera ou microfone não encontrados.";
+        console.warn("First getUserMedia attempt failed, retrying with fallbacks:", err);
+        try {
+          // Fallback to basic audio/video or just audio if video fails
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true
+          });
+          streamRef.current = stream;
+          setIsVideoOn(false);
+          setConnectionStatus('connecting');
+          showToast("A câmera não pôde ser iniciada. Conectando com áudio apenas.", "info");
+        } catch (innerErr: any) {
+          console.error("Error accessing media devices after fallback:", innerErr);
+          let errorMessage = "Erro ao acessar a câmera ou microfone.";
+          if (innerErr.name === 'NotAllowedError') {
+            errorMessage = "Permissão negada. Por favor, permita o acesso à câmera e microfone.";
+          } else if (innerErr.name === 'NotFoundError') {
+            errorMessage = "Câmera ou microfone não encontrados.";
+          }
+          showToast(errorMessage, "error");
+          setConnectionStatus('failed');
+          return;
         }
-        showToast(errorMessage, "error");
-        setConnectionStatus('failed');
-        return;
       }
 
       pc = new RTCPeerConnection(servers);
@@ -149,6 +191,7 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
 
       // Signaling
       unsubscribeSignaling = listenForSignaling(callId, async (data) => {
+        setCall({ id: callId, ...data } as Call);
         const currentPc = pcRef.current;
         if (!currentPc || currentPc.signalingState === 'closed' || processingRef.current) return;
 
@@ -304,14 +347,48 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
     startScreenShare();
   }, [isScreenSharing]);
 
-  // For visual purposes, show current user and the other participant
-  const otherParticipantId = channel.members.find(id => id !== currentUser.uid);
-  const otherUser = allUsers.find(u => u.uid === otherParticipantId);
-  const callParticipants = [currentUser];
-  if (otherUser) callParticipants.push(otherUser);
+  // For visual purposes, show all participants
+  const callParticipants = React.useMemo(() => {
+    if (!call?.participants) return [currentUser];
+    return call.participants
+      .map(uid => allUsers.find(u => u.uid === uid))
+      .filter((u): u is UserProfile => !!u);
+  }, [call?.participants, allUsers, currentUser]);
+  
+  const totalParticipants = callParticipants.length;
+
+  const channelMembers = (allUsers || []).filter(u => channel.members.includes(u.uid));
+  const currentParticipantsIds = call?.participants || [];
+
+  const handleInvite = async (userId: string) => {
+    try {
+      await inviteMemberToCall(callId, userId);
+      showToast("Convite enviado!", "success");
+      setShowInviteModal(false);
+    } catch (err) {
+      console.error("Error inviting member:", err);
+      showToast("Erro ao convidar membro.", "error");
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-black border-b border-border-primary relative overflow-hidden">
+      {viewingProfileUser && (
+        <UserProfileModal
+          user={viewingProfileUser}
+          currentUser={currentUser}
+          isOpen={!!viewingProfileUser}
+          onClose={() => setViewingProfileUser(null)}
+        />
+      )}
+      {showInviteModal && (
+        <InviteMemberModal
+          members={channelMembers}
+          currentParticipants={currentParticipantsIds}
+          onClose={() => setShowInviteModal(false)}
+          onInvite={handleInvite}
+        />
+      )}
       {connectionStatus === 'syncing' && (
         <div className="absolute inset-0 z-50 bg-bg-tertiary/90 flex flex-col items-center justify-center space-y-4">
           <Loader2 className="w-12 h-12 text-[#5865f2] animate-spin" />
@@ -329,7 +406,7 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
             connectionStatus === 'connecting' ? "bg-[#f2bc1b]" : "bg-[#f23f42]"
           )} />
           <span className="text-white font-medium text-sm drop-shadow-md flex items-center space-x-2">
-            <span>Chamada de {type === 'video' ? 'Vídeo' : 'Voz'} - {channel.name}</span>
+            <span>Chamada de {type === 'video' ? 'Vídeo' : 'Voz'} - {channel.name} ({totalParticipants} participantes)</span>
             <span className="text-[10px] opacity-70 uppercase tracking-widest bg-white/10 px-1.5 py-0.5 rounded">
               {connectionStatus === 'connected' ? 'Conectado' : 
                connectionStatus === 'connecting' ? 'Conectando...' : 'Erro de Conexão'}
@@ -375,13 +452,20 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
         )}>
           {callParticipants.map(user => {
             const isMe = user.uid === currentUser.uid;
+            const otherParticipants = (call?.participants || []).filter(p => p !== currentUser.uid);
+            const isRemotePeer = !!(call && (
+               user.uid === call.calleeId || 
+               (currentUser.uid === call.calleeId && user.uid === call.callerId) ||
+               (otherParticipants.length === 1 && otherParticipants[0] === user.uid)
+            ));
             
             return (
               <div 
                 key={user.uid} 
+                onClick={() => setViewingProfileUser(user)}
                 className={cn(
                   "relative flex-1 min-w-[200px] max-w-[400px] aspect-video bg-bg-tertiary rounded-xl flex items-center justify-center overflow-hidden transition-all duration-200",
-                  "ring-1 ring-border-primary"
+                  "ring-1 ring-border-primary cursor-pointer hover:ring-color-brand"
                 )}
               >
               {/* Avatar or Video */}
@@ -407,9 +491,13 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
                     </div>
                   )
                 ) : (
-                  connectionStatus === 'connected' && type === 'video' ? (
+                  isRemotePeer && connectionStatus === 'connected' && type === 'video' ? (
                     <video 
-                      ref={remoteVideoRef}
+                      ref={(el) => {
+                        if (el && remoteStreamRef.current) {
+                          el.srcObject = remoteStreamRef.current;
+                        }
+                      }}
                       autoPlay 
                       playsInline 
                       className="w-full h-full object-cover"
@@ -422,9 +510,14 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
                         className="w-24 h-24 rounded-full object-cover"
                         referrerPolicy="no-referrer"
                       />
-                      {connectionStatus === 'connecting' && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full">
-                          <Loader2 className="w-8 h-8 text-white animate-spin" />
+                      {!isRemotePeer && (
+                        <div className="absolute inset-x-0 bottom-0 flex items-center justify-center bg-black/60 py-0.5">
+                          <span className="text-[9px] text-white opacity-85">Sem vídeo</span>
+                        </div>
+                      )}
+                      {isRemotePeer && connectionStatus !== 'connected' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-full">
+                          <span className="text-[10px] text-white bg-black/50 px-1 py-0.5 rounded">Conectando...</span>
                         </div>
                       )}
                     </div>
@@ -490,6 +583,14 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
           title={isMuted ? "Ativar Microfone" : "Silenciar"}
         >
           {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+        </button>
+        
+        <button
+          onClick={() => setShowInviteModal(true)}
+          className="p-3 bg-bg-secondary hover:bg-bg-tertiary text-white rounded-full transition-colors"
+          title="Convidar Membros"
+        >
+          <UserPlus className="w-6 h-6" />
         </button>
 
         <div className="w-px h-8 bg-border-primary mx-2" />

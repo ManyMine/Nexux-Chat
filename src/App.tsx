@@ -36,6 +36,7 @@ import {
   getRecordingUsers,
   startCall,
   updateCallStatus,
+  acceptCall,
   listenForIncomingCalls,
   setupRecaptcha,
   requestPhoneCode,
@@ -138,6 +139,14 @@ export default function App() {
             // Force admin role for belepuff@gmail.com if not already set
             if (user.email === 'belepuff@gmail.com' && userData.role !== 'admin') {
               await setDoc(doc(db, USERS_COLLECTION, user.uid), { role: 'admin' }, { merge: true });
+              return; // The listener will trigger again
+            }
+
+            // Sync user's default/Google photo if it exists but is missing in Firestore
+            if (user.photoURL && !userData.photoURL) {
+              await setDoc(doc(db, USERS_COLLECTION, user.uid), { photoURL: user.photoURL }, { merge: true });
+              const { syncUserPhotoInMessages } = await import('./services/firebaseService');
+              await syncUserPhotoInMessages(user.uid, user.photoURL);
               return; // The listener will trigger again
             }
 
@@ -312,18 +321,11 @@ export default function App() {
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
         
-        // Filter users: hide private accounts unless they share a channel with the current user
-        const conversingUserIds = new Set(channels.flatMap(c => c.members || []));
-        
-        setAllUsers(usersData.filter(u => {
-          if (u.uid === currentUser.uid) return false;
-          if (u.isPrivate && !conversingUserIds.has(u.uid)) return false;
-          return true;
-        }));
+        setAllUsers(usersData.filter(u => u.uid !== currentUser.uid));
       });
       return () => unsubscribe();
     }
-  }, [currentUser, view, channels]);
+  }, [currentUser, view]);
 
   // Incoming Calls Listener
   useEffect(() => {
@@ -549,7 +551,7 @@ export default function App() {
     if (!incomingCall) return;
     
     try {
-      await updateCallStatus(incomingCall.id, 'ongoing');
+      await acceptCall(incomingCall.id, currentUser.uid, currentUser.displayName || 'Usuário');
       const channel = channels.find(c => c.id === incomingCall.channelId);
       if (channel) {
         setActiveCall({ id: incomingCall.id, type: incomingCall.type, channel });
@@ -585,19 +587,25 @@ export default function App() {
 
   const handleSendMessage = async (content: string, file?: File) => {
     if (activeChannel && currentUser) {
+      // Immediate UI update could be handled here by appending a temporary message
+      // if the application had local state to manage it. 
+      // For now, I'll ensure the upload doesn't block the UI thread unnecessarily.
       try {
-        let fileUrl: string | undefined;
-        let fileType: string | undefined;
         if (file) {
-          console.log("Sending file:", file.name, file.type, file.size);
-          fileUrl = await uploadFile(file, `messages/${activeChannel.id}/${Date.now()}_${file.name}`);
-          fileType = file.type;
-          console.log("File uploaded:", fileUrl, fileType);
+          // Limit file size (e.g., 100MB is still huge for browser, but limit is safer)
+          if (file.size > 100 * 1024 * 1024) {
+             showToast('Arquivo muito grande (limite 100MB).', 'error');
+             return;
+          }
+          
+          const fileUrl = await uploadFile(file, `messages/${activeChannel.id}/${Date.now()}_${file.name}`);
+          await sendMessage(activeChannel.id, currentUser, content, fileUrl, file.type);
+        } else {
+          await sendMessage(activeChannel.id, currentUser, content);
         }
-        // Replace newlines with <br/> or ensure whitespace is preserved in CSS
-        await sendMessage(activeChannel.id, currentUser, content, fileUrl, fileType);
       } catch (error) {
         console.error("Error sending message:", error);
+        showToast("Erro ao enviar mensagem", "error");
       }
     }
   };

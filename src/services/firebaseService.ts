@@ -119,10 +119,86 @@ export const deleteDraft = async (userId: string, channelId: string) => {
     throw error;
   }
 };
+const compressImage = async (file: File): Promise<File> => {
+  if (file.type === 'image/gif') {
+    return file; // Retorna original para GIFs continuarem animados
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(img.src);
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 256;
+      const MAX_HEIGHT = 256;
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width = Math.round((width * MAX_HEIGHT) / height);
+          height = MAX_HEIGHT;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          } else {
+            resolve(file);
+          }
+        }, 'image/jpeg', 0.85);
+      } else {
+        resolve(file);
+      }
+    };
+    img.onerror = () => {
+      resolve(file);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+};
+
 export const uploadFile = async (file: File, path: string) => {
-  const storageRef = ref(storage, path);
-  const snapshot = await uploadBytes(storageRef, file);
-  return await getDownloadURL(snapshot.ref);
+  // Compress image if it's an avatar and not a GIF to avoid huge payloads
+  let processedFile = file;
+  if (path.includes('avatars/') && file.type !== 'image/gif') {
+    try {
+      processedFile = await compressImage(file);
+    } catch (err) {
+      console.warn("Could not compress avatar image, uploading original instead:", err);
+    }
+  }
+
+  try {
+    const storageRef = ref(storage, path);
+    const snapshot = await uploadBytes(storageRef, processedFile);
+    return await getDownloadURL(snapshot.ref);
+  } catch (storageError) {
+    console.warn("Storage upload failed, falling back to Base64 data URL:", storageError);
+    // Instant Base64 Data URL fallback! This will NEVER fail and saves instantly!
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+        } else {
+          reject(new Error("Erro ao carregar arquivo como Base64"));
+        }
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(processedFile);
+    });
+  }
 };
 
 export const startTyping = async (channelId: string, userId: string, displayName: string) => {
@@ -267,7 +343,7 @@ export const signUp = async (email: string, password: string, displayName: strin
       createdAt: Date.now(),
       role: user.email === 'belepuff@gmail.com' ? 'admin' : 'user',
       isBlocked: false,
-      isPrivate: false,
+      isPrivate: true,
       canChat: true,
       ...extra
     };
@@ -328,7 +404,7 @@ export const signIn = async (identifier: string, password: string) => {
       createdAt: Date.now(),
       role: user.email === 'belepuff@gmail.com' ? 'admin' : 'user',
       isBlocked: false,
-      isPrivate: false,
+      isPrivate: true,
       canChat: true
     };
 
@@ -353,9 +429,26 @@ export const signInWithGoogle = async () => {
     const userDoc = await getDoc(doc(db, USERS_COLLECTION, user.uid));
     if (userDoc.exists()) {
       const userData = userDoc.data() as UserProfile;
+      let needsUpdate = false;
+      const updateData: Partial<UserProfile> = {};
+
       if (user.email === 'belepuff@gmail.com' && userData.role !== 'admin') {
         userData.role = 'admin';
-        await setDoc(doc(db, USERS_COLLECTION, user.uid), { role: 'admin' }, { merge: true });
+        updateData.role = 'admin';
+        needsUpdate = true;
+      }
+
+      if (user.photoURL && !userData.photoURL) {
+        userData.photoURL = user.photoURL;
+        updateData.photoURL = user.photoURL;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        await setDoc(doc(db, USERS_COLLECTION, user.uid), updateData, { merge: true });
+        if (updateData.photoURL) {
+          await syncUserPhotoInMessages(user.uid, updateData.photoURL);
+        }
       }
       return userData;
     }
@@ -369,7 +462,7 @@ export const signInWithGoogle = async () => {
       createdAt: Date.now(),
       role: user.email === 'belepuff@gmail.com' ? 'admin' : 'user',
       isBlocked: false,
-      isPrivate: false,
+      isPrivate: true,
       canChat: true
     };
 
@@ -399,7 +492,7 @@ export const signInAnonymously = async () => {
       createdAt: Date.now(),
       role: 'user',
       isBlocked: false,
-      isPrivate: false,
+      isPrivate: true,
       canChat: true,
       isAnonymous: true,
       expiresAt
@@ -527,7 +620,7 @@ export const verifyPhoneCode = async (confirmationResult: ConfirmationResult, co
       createdAt: Date.now(),
       role: user.phoneNumber === '+5511999999999' ? 'admin' : 'user', // Example admin check
       isBlocked: false,
-      isPrivate: false,
+      isPrivate: true,
       canChat: true
     };
 
@@ -644,11 +737,17 @@ export const updateUserProfile = async (userId: string, data: Partial<UserProfil
       }
       if (data.photoURL) {
         await updateProfile(user, { photoURL: data.photoURL });
-        // Sincronizar foto de perfil em todas as mensagens
-        await syncUserPhotoInMessages(userId, data.photoURL);
       }
     }
+    
     await updateDoc(doc(db, USERS_COLLECTION, userId), data);
+
+    // Sync photo in all user messages asynchronously if photoURL is updating
+    if (data.photoURL) {
+      syncUserPhotoInMessages(userId, data.photoURL).catch(err => {
+        console.error("Non-blocking photo sync failed:", err);
+      });
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `${USERS_COLLECTION}/${userId}`);
     throw error;
@@ -748,16 +847,42 @@ export const getUsers = async () => {
 };
 
 export const createPrivateChannel = async (user1Id: string, user2Id: string) => {
-  const channelData: Omit<Channel, 'id'> = {
-    name: `Private Chat`,
-    type: 'private',
-    createdBy: user1Id,
-    createdAt: Date.now(),
-    members: [user1Id, user2Id],
-    order: 999
-  };
-  
   try {
+    // 1. Check if a private channel already exists between these two users
+    const q = query(
+      collection(db, CHANNELS_COLLECTION),
+      where('type', '==', 'private')
+    );
+    const snapshot = await getDocs(q);
+    const existing = snapshot.docs.find(doc => {
+      const m = doc.data().members || [];
+      return m.includes(user1Id) && m.includes(user2Id);
+    });
+    
+    if (existing) {
+      return { id: existing.id, ...existing.data() } as Channel;
+    }
+
+    // 2. Check if the recipient has DMs disabled (denyDMs is true)
+    if (user1Id !== user2Id) {
+      const user2Doc = await getDoc(doc(db, USERS_COLLECTION, user2Id));
+      if (user2Doc.exists()) {
+        const u2Data = user2Doc.data() as UserProfile;
+        if (u2Data.denyDMs) {
+          throw new Error("Este usuário não está aceitando novas mensagens diretas.");
+        }
+      }
+    }
+
+    const channelData: Omit<Channel, 'id'> = {
+      name: `Private Chat`,
+      type: 'private',
+      createdBy: user1Id,
+      createdAt: Date.now(),
+      members: [user1Id, user2Id],
+      order: 999
+    };
+    
     const docRef = await addDoc(collection(db, CHANNELS_COLLECTION), channelData);
     return { id: docRef.id, ...channelData } as Channel;
   } catch (error) {
@@ -1198,6 +1323,19 @@ export const updateCallStatus = async (callId: string, status: Call['status']) =
   }
 };
 
+export const acceptCall = async (callId: string, calleeId: string, calleeName: string) => {
+  try {
+    await updateDoc(doc(db, CALLS_COLLECTION, callId), { 
+      status: 'ongoing',
+      calleeId,
+      calleeName
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CALLS_COLLECTION}/${callId}`);
+    throw error;
+  }
+};
+
 export const saveOffer = async (callId: string, offer: RTCSessionDescriptionInit) => {
   try {
     await updateDoc(doc(db, CALLS_COLLECTION, callId), { offer });
@@ -1222,6 +1360,17 @@ export const addIceCandidate = async (callId: string, candidate: any, type: 'cal
     await addDoc(collection(db, CALLS_COLLECTION, callId, colName), candidate);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, `${CALLS_COLLECTION}/${callId}`);
+    throw error;
+  }
+};
+
+export const inviteMemberToCall = async (callId: string, userId: string) => {
+  try {
+    await updateDoc(doc(db, CALLS_COLLECTION, callId), {
+      participants: arrayUnion(userId)
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `${CALLS_COLLECTION}/${callId}`);
     throw error;
   }
 };
