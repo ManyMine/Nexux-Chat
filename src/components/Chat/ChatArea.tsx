@@ -888,7 +888,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   return (
     <div 
-      className={cn("flex-1 flex flex-col h-full overflow-hidden relative pb-10", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}
+      className={cn("flex-1 flex flex-col h-full overflow-hidden relative pb-20", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}
       onDragOver={(e) => {
         e.preventDefault();
         setIsDraggingFile(true);
@@ -2206,7 +2206,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             className="fixed z-50 w-64 bg-bg-overlay border border-border-primary rounded-md shadow-2xl py-1.5 max-h-[70vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {contextMenu.message.senderId !== currentUser.uid && (
+            {true && (
               <button 
                 onClick={() => {
                   setReplyingToMessage(contextMenu.message);
