@@ -11,7 +11,7 @@ import { ChannelSettings } from './ChannelSettings';
 import { CallView } from './CallView';
 import { IncomingCallModal } from './IncomingCallModal';
 import { UserStatusView } from '../Status/UserStatusView';
-import { updateChannel, deleteChannel, deleteMessage, markMessageAsRead, getUsers, editMessage, createPrivateChannel, createChannel, startCall, updateCallStatus, listenForIncomingCalls, toggleChatAccess, togglePinMessage, removeChannelMember, toggleReaction, updateStatusPresence, removeStatusPresence, listenForStatusPresence, saveDraft, getDraft, deleteDraft } from '@/src/services/firebaseService';
+import { getCensoredWords, updateCensoredWords, updateChannel, deleteChannel, deleteMessage, markMessageAsRead, getUsers, editMessage, createPrivateChannel, createChannel, startCall, updateCallStatus, listenForIncomingCalls, toggleChatAccess, togglePinMessage, removeChannelMember, toggleReaction, updateStatusPresence, removeStatusPresence, listenForStatusPresence, saveDraft, getDraft, deleteDraft } from '@/src/services/firebaseService';
 import { translateText, chatWithGemini } from '@/src/services/geminiService';
 import { useI18n } from '@/src/lib/i18n';
 import { Status } from '@/src/types';
@@ -118,6 +118,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const { t } = useI18n();
   const { showToast } = useToast();
   const [input, setInput] = useState('');
+  const [censoredWords, setCensoredWords] = useState<string[]>([]);
+  useEffect(() => {
+    getCensoredWords().then(words => setCensoredWords(words)).catch(console.error);
+  }, []);
+
   const [draftLoaded, setDraftLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showUsers, setShowUsers] = useState(true);
@@ -128,6 +133,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [statuses, setStatuses] = useState<Status[]>([]);
   const [selectedStatusUserId, setSelectedStatusUserId] = useState<string | null>(null);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const { settings } = useAccessibility();
   const prevMessagesLengthRef = useRef(messages.length);
 
@@ -137,7 +143,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       newMessages.forEach(msg => {
         if (msg.senderId !== currentUser.uid && msg.content) {
           if (settings.morseCode) playMorseCode(msg.content);
-          if (settings.textToSpeech) speakText(`${msg.senderName} disse: ${msg.content}`, settings.ttsVoiceName);
+          if (settings.textToSpeech) speakText(`${msg.senderName} disse: ${censorText(msg.content)}`, settings.ttsVoiceName);
         }
       });
     }
@@ -403,6 +409,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         return [];
       });
       setInput('');
+      setReplyingToMessage(null);
       onStopTyping();
       if (activeChannel) {
         deleteDraft(currentUser.uid, activeChannel.id);
@@ -502,22 +509,51 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             // Send each file
             for (let i = 0; i < filesToSend.length; i++) {
               const currentFile = filesToSend[i];
-              const contentForThisMessage = (i === 0) ? trimmedInput : '';
+              let contentForThisMessage = (i === 0) ? trimmedInput : '';
+              if (replyingToMessage && i === 0) contentForThisMessage = `Respondendo a: ${replyingToMessage.content}\n${contentForThisMessage}`;
               await onSendMessage(contentForThisMessage, currentFile, (progress) => {
                 setUploadProgress(progress);
               });
             }
           } else if (trimmedInput) {
             // Just send the text message
-            await onSendMessage(trimmedInput);
+            const content = replyingToMessage ? `Respondendo a: ${replyingToMessage.content}\n${trimmedInput}` : trimmedInput;
+            await onSendMessage(content);
           }
         } catch (error) {
           console.error("Error sending files/message:", error);
         } finally {
           setIsUploading(false);
           setUploadProgress(null);
+          setReplyingToMessage(null);
         }
       })();
+    }
+  };
+
+  
+  const censorText = (text: string) => {
+    if (!text || censoredWords.length === 0) return text;
+    let censored = text;
+    censoredWords.forEach(word => {
+      if (!word) return;
+      const regex = new RegExp(`\\b${word}\\b`, 'gi');
+      censored = censored.replace(regex, '***');
+    });
+    return censored;
+  };
+
+  const handleCensorMessage = async (phrase: string) => {
+    const word = phrase.trim().toLowerCase();
+    if (censoredWords.includes(word)) return;
+    
+    try {
+      const newWords = [...censoredWords, word];
+      await updateCensoredWords(newWords);
+      setCensoredWords(newWords);
+      showToast('Mensagem censurada com sucesso.', 'success');
+    } catch (error) {
+      showToast('Erro ao censurar mensagem.', 'error');
     }
   };
 
@@ -852,7 +888,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
   return (
     <div 
-      className={cn("flex-1 flex flex-col h-full overflow-hidden relative", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}
+      className={cn("flex-1 flex flex-col h-full overflow-hidden relative pb-10", activeChannel?.background ? "bg-transparent" : "bg-bg-primary")}
       onDragOver={(e) => {
         e.preventDefault();
         setIsDraggingFile(true);
@@ -1127,7 +1163,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             <PinOff className="w-4 h-4" />
                           </button>
                         </div>
-                        <p className="text-sm text-text-secondary line-clamp-3">{msg.content}</p>
+                        <p className="text-sm text-text-secondary line-clamp-3">{censorText(msg.content)}</p>
                         <p className="text-[10px] text-text-muted mt-2">{getTimestampDate(msg.timestamp)?.toLocaleString() || ''}</p>
                       </div>
                     ))
@@ -1213,6 +1249,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               </div>
             ) : (
               messages.map((msg, idx) => {
+                
                 const isSameUserAsPrev = idx > 0 && messages[idx-1].senderId === msg.senderId;
                 const date = getTimestampDate(msg.timestamp);
                 const prevMsg = idx > 0 ? messages[idx-1] : null;
@@ -1292,7 +1329,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         <div className="flex-1 min-w-0">
                           <p className="text-text-secondary break-words leading-relaxed whitespace-pre-wrap flex items-end gap-2">
                             {msg.isPinned && <Pin className="w-3 h-3 text-color-brand inline-block mr-1 -mt-1" />}
-                            {msg.content}
+                            {censorText(msg.content)}
                             {msg.isEdited && <span className="text-[10px] text-text-muted">(editado)</span>}
                             {isSameUserAsPrev && <span className="text-[10px] text-text-muted">{time}</span>}
                           </p>
@@ -1467,7 +1504,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                       {currentUser.linkPreviewsEnabled !== false && (
                         <>
-                          {msg.content.match(/(https?:\/\/[^\s]+)/g)?.map((url, i) => (
+                          {censorText(msg.content).match(/(https?:\/\/[^\s]+)/g)?.map((url, i) => (
                             <LinkPreview key={i} url={url} />
                           ))}
                         </>
@@ -2171,6 +2208,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           >
             {contextMenu.message.senderId !== currentUser.uid && (
               <button 
+                onClick={() => {
+                  setReplyingToMessage(contextMenu.message);
+                  setContextMenu(null);
+                }}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#5865f2] hover:text-white transition-colors group"
+              >
+                <span>Responder</span>
+                <MessageSquare className="w-4 h-4" />
+              </button>
+            )}
+            {contextMenu.message.senderId !== currentUser.uid && (
+              <button 
                 onClick={() => handleCreateDM(contextMenu.message.senderId)}
                 className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-color-brand hover:text-white transition-colors group"
               >
@@ -2317,6 +2366,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <span>Copiar Texto</span>
               <Copy className="w-4 h-4" />
             </button>
+            {currentUser.role === 'admin' && (
+              <>
+                <button
+                  onClick={() => {
+                    handleCensorMessage(contextMenu.message.content);
+                    setContextMenu(null);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-[#f23f42] hover:bg-[#f23f42] hover:text-white transition-colors group"
+                >
+                  <span>Censurar</span>
+                  <ShieldOff className="w-4 h-4" />
+                </button>
+                <div className="h-px bg-border-primary my-1 mx-2" />
+              </>
+            )}
             {(contextMenu.message.senderId === currentUser.uid || currentUser.role === 'admin') && (
               <>
                 <div className="h-px bg-border-primary my-1 mx-2" />

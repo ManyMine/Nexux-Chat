@@ -1517,6 +1517,28 @@ export const reportUser = async (reporterId: string, reportedId: string, reason:
   }
 };
 
+export const getCensoredWords = async (): Promise<string[]> => {
+  try {
+    const docSnap = await getDoc(doc(db, 'settings', 'censorship'));
+    if (docSnap.exists()) {
+      return docSnap.data().words || [];
+    }
+    return [];
+  } catch (error) {
+    console.error("Error getting censored words:", error);
+    return [];
+  }
+};
+
+export const updateCensoredWords = async (words: string[]) => {
+  try {
+    await setDoc(doc(db, 'settings', 'censorship'), { words }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, 'settings');
+    throw error;
+  }
+};
+
 export const getReports = async () => {
   try {
     const q = query(collection(db, REPORTS_COLLECTION), orderBy('timestamp', 'desc'));

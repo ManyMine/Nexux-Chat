@@ -87,7 +87,7 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({
     try {
       const isValid = await verifySecurityAnswer(data.email, data.securityAnswer);
       if (isValid) {
-        setStep('password');
+        onReset({ email: data.email });
       } else {
         setSecurityError("A resposta da pergunta de segurança está incorreta.");
       }

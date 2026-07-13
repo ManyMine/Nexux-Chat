@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Shield, ShieldAlert, Ban, Mail, CheckCircle2, Loader2, AlertCircle, Trash2, Search, X, Camera } from 'lucide-react';
 import { UserProfile } from '@/src/types';
-import { getUsers, toggleUserBlock, updateUserRole, resetPassword, adminDeleteUser, uploadFile, updateUserProfile } from '@/src/services/firebaseService';
+import { getUsers, getCensoredWords, updateCensoredWords, toggleUserBlock, updateUserRole, resetPassword, adminDeleteUser, uploadFile, updateUserProfile } from '@/src/services/firebaseService';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { cn } from '@/src/lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,7 +11,10 @@ interface AdminPanelProps {
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
+  const [activeTab, setActiveTab] = useState<'users' | 'censorship'>('users');
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [censoredWords, setCensoredWords] = useState<string[]>([]);
+  const [newCensoredWord, setNewCensoredWord] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -57,6 +60,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
         adminFileInputRef.current.value = '';
       }
       setTimeout(() => setMessage(null), 3500);
+    }
+  };
+
+  
+  const handleAddCensoredWord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCensoredWord.trim()) return;
+    const word = newCensoredWord.trim().toLowerCase();
+    if (censoredWords.includes(word)) return;
+    
+    setActionLoading('add-word');
+    try {
+      const newWords = [...censoredWords, word];
+      await updateCensoredWords(newWords);
+      setCensoredWords(newWords);
+      setNewCensoredWord('');
+      setMessage({ type: 'success', text: 'Palavra adicionada com sucesso.' });
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Erro ao adicionar palavra.' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRemoveCensoredWord = async (wordToRemove: string) => {
+    setActionLoading('remove-word-' + wordToRemove);
+    try {
+      const newWords = censoredWords.filter(w => w !== wordToRemove);
+      await updateCensoredWords(newWords);
+      setCensoredWords(newWords);
+      setMessage({ type: 'success', text: 'Palavra removida com sucesso.' });
+    } catch (error) {
+      setMessage({ type: 'error', text: 'Erro ao remover palavra.' });
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -240,7 +278,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ currentUser }) => {
           </div>
         </div>
 
-        {loading ? (
+        {activeTab === 'censorship' ? (
+        <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+          <form onSubmit={handleAddCensoredWord} className="flex space-x-2">
+            <input
+              type="text"
+              value={newCensoredWord}
+              onChange={(e) => setNewCensoredWord(e.target.value)}
+              placeholder="Digite a palavra para censurar..."
+              className="flex-1 bg-bg-tertiary text-text-primary px-4 py-2 rounded border border-border-primary focus:outline-none focus:border-color-brand"
+            />
+            <button
+              type="submit"
+              disabled={actionLoading === 'add-word' || !newCensoredWord.trim()}
+              className="bg-color-brand hover:brightness-110 text-white px-4 py-2 rounded font-bold disabled:opacity-50 flex items-center"
+            >
+              {actionLoading === 'add-word' ? <Loader2 className="w-4 h-4 animate-spin" /> : "Adicionar"}
+            </button>
+          </form>
+          <div className="flex flex-wrap gap-2 mt-4">
+            {censoredWords.map(word => (
+              <div key={word} className="bg-bg-tertiary border border-border-primary rounded-full px-3 py-1 flex items-center space-x-2">
+                <span className="text-text-primary text-sm font-medium">{word}</span>
+                <button 
+                  onClick={() => handleRemoveCensoredWord(word)}
+                  disabled={actionLoading === 'remove-word-' + word}
+                  className="text-text-muted hover:text-[#f23f42] transition-colors"
+                >
+                  {actionLoading === 'remove-word-' + word ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+                </button>
+              </div>
+            ))}
+            {censoredWords.length === 0 && (
+              <p className="text-text-muted text-sm italic w-full text-center py-4">Nenhuma palavra censurada configurada.</p>
+            )}
+          </div>
+        </div>
+      ) : loading ? (
           <div className="p-8 flex justify-center">
             <Loader2 className="w-8 h-8 text-[#5865f2] animate-spin" />
           </div>

@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ChevronLeft, ChevronRight, Play, Pause, Volume2, VolumeX, History, Heart, MessageCircle, Send, Music, Type, Link as LinkIcon } from 'lucide-react';
 import { Status, UserProfile, StatusComment } from '@/src/types';
 import { cn } from '@/src/lib/utils';
-import { getUserStatusHistory, likeStatus, commentStatus } from '@/src/services/firebaseService';
+import { getUserStatusHistory, likeStatus, commentStatus, createPrivateChannel, sendMessage } from '@/src/services/firebaseService';
 import { DEFAULT_AVATAR } from '@/src/constants';
 
 interface UserStatusViewProps {
@@ -152,11 +152,27 @@ export const UserStatusView: React.FC<UserStatusViewProps> = ({ userId, currentU
   const handleComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
+    
+    const text = commentText.trim();
+    setCommentText(''); // Clear input immediately
+    
     try {
-      await commentStatus(currentStatus.id, currentUser, commentText);
-      setCommentText('');
+      await commentStatus(currentStatus.id, currentUser, text);
+      
+      // Instagram-style direct message (DM) auto-send if commenting on another user's status
+      if (currentStatus.userId !== currentUser.uid) {
+        const channel = await createPrivateChannel(currentUser.uid, currentStatus.userId);
+        await sendMessage(channel.id, currentUser, text, undefined, undefined, {
+          statusId: currentStatus.id,
+          userId: currentStatus.userId,
+          mediaUrl: currentStatus.mediaUrl || null,
+          mediaType: currentStatus.mediaType || null,
+          caption: currentStatus.caption || ''
+        });
+      }
     } catch (error) {
       console.error("Error commenting on status:", error);
+      setCommentText(text); // Restore on error
     }
   };
 

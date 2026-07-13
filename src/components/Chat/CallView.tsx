@@ -46,6 +46,7 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [viewingProfileUser, setViewingProfileUser] = useState<UserProfile | null>(null);
   const [previousParticipants, setPreviousParticipants] = useState<string[]>([]);
+  const [remoteHasVideo, setRemoteHasVideo] = useState(type === 'video');
   
   useEffect(() => {
     if (call?.participants) {
@@ -148,12 +149,26 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
         });
       }
 
+      // Ensure there's a video transceiver even for voice calls so screen sharing works
+      if (pcRef.current && pcRef.current.signalingState !== 'closed') {
+        const hasVideo = streamRef.current ? streamRef.current.getVideoTracks().length > 0 : false;
+        if (!hasVideo) {
+          pcRef.current.addTransceiver('video', { direction: 'sendrecv' });
+        }
+      }
+
       // Remote Stream
       const remoteStream = new MediaStream();
       remoteStreamRef.current = remoteStream;
 
       pc.ontrack = (event) => {
         console.log("Remote track received:", event.track.kind);
+        if (event.track.kind === 'video') {
+           setRemoteHasVideo(true);
+           event.track.onunmute = () => setRemoteHasVideo(true);
+           event.track.onmute = () => setRemoteHasVideo(false);
+        }
+
         if (event.streams && event.streams[0]) {
           remoteStreamRef.current = event.streams[0];
           if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
@@ -318,8 +333,10 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
           // In a real app, we would replace the video track in the peer connection
           if (pcRef.current) {
             const videoTrack = stream.getVideoTracks()[0];
-            const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
-            if (sender) sender.replaceTrack(videoTrack);
+            const transceiver = pcRef.current.getTransceivers().find(t => t.receiver.track.kind === 'video');
+            if (transceiver && transceiver.sender) {
+              transceiver.sender.replaceTrack(videoTrack);
+            }
           }
 
           stream.getVideoTracks()[0].onended = () => {
@@ -335,10 +352,12 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
           screenStreamRef.current = null;
           
           // Revert to camera track
-          if (pcRef.current && streamRef.current) {
-            const videoTrack = streamRef.current.getVideoTracks()[0];
-            const sender = pcRef.current.getSenders().find(s => s.track?.kind === 'video');
-            if (sender) sender.replaceTrack(videoTrack);
+          if (pcRef.current) {
+            const videoTrack = streamRef.current ? streamRef.current.getVideoTracks()[0] : null;
+            const transceiver = pcRef.current.getTransceivers().find(t => t.receiver.track.kind === 'video');
+            if (transceiver && transceiver.sender) {
+              transceiver.sender.replaceTrack(videoTrack || null);
+            }
           }
         }
       }
@@ -491,7 +510,7 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
                     </div>
                   )
                 ) : (
-                  isRemotePeer && connectionStatus === 'connected' && type === 'video' ? (
+                  isRemotePeer && connectionStatus === 'connected' && (type === 'video' || remoteHasVideo) ? (
                     <video 
                       ref={(el) => {
                         if (el && remoteStreamRef.current) {
@@ -529,6 +548,8 @@ export const CallView: React.FC<CallViewProps> = ({ callId, channel, currentUser
               <div className="absolute bottom-3 left-3 bg-black/60 px-2 py-1 rounded text-white text-xs font-medium flex items-center space-x-2">
                 <span>{user.displayName}</span>
                 {isMe && isMuted && <MicOff className="w-3 h-3 text-[#f23f42]" />}
+                {isMe && isScreenSharing && screenStreamRef.current?.active && <span title="Compartilhando Tela"><MonitorUp className="w-3 h-3 text-[#23a559]" /></span>}
+                {!isMe && isRemotePeer && remoteHasVideo && remoteStreamRef.current?.getVideoTracks().some(t => t.label.toLowerCase().includes('screen') || t.label.toLowerCase().includes('monitor')) && <span title="Compartilhando Tela"><MonitorUp className="w-3 h-3 text-[#23a559]" /></span>}
                 {!isMe && connectionStatus !== 'connected' && <span className="text-[10px] text-[#f2bc1b]">Conectando...</span>}
               </div>
             </div>

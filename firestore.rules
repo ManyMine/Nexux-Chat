@@ -71,6 +71,11 @@ service cloud.firestore {
       }
     }
 
+    
+    match /settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
     match /reports/{reportId} {
       allow read: if isAdmin();
       allow create: if isAuthenticated();
