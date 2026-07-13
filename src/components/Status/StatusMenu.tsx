@@ -105,7 +105,7 @@ export const StatusMenu: React.FC<StatusMenuProps> = ({ currentUser, onClose, in
       <div className="p-4 border-b border-[#202225] flex items-center justify-between bg-[#2f3136]">
         <div className="flex items-center space-x-3 gpu-accelerated">
           <img 
-            src="https://img.sanishtech.com/u/47612354b3429905a0e4183c638bcdfb.png" 
+            src="https://www.image2url.com/r2/default/images/1783957698206-a4bc0933-1da2-42af-9e0b-dcb9118a5b5d.png" 
             alt="Logo" 
             className="w-8 h-8 object-contain will-change-transform"
             referrerPolicy="no-referrer"
@@ -708,8 +708,8 @@ const StatusViewer: React.FC<{
           await sendMessage(channel.id, currentUser, commentText, undefined, undefined, {
             statusId: latestStatus.id,
             userId: latestStatus.userId,
-            mediaUrl: latestStatus.mediaUrl,
-            mediaType: latestStatus.mediaType,
+            mediaUrl: latestStatus.mediaUrl || null,
+            mediaType: latestStatus.mediaType || null,
             caption: latestStatus.caption || ''
           });
           showToast("Resposta enviada também via Direct!", "success");
@@ -739,9 +739,9 @@ const StatusViewer: React.FC<{
       await sendMessage(channel.id, currentUser, messageText, undefined, undefined, {
         statusId: latestStatus.id,
         userId: latestStatus.userId,
-        mediaUrl: latestStatus.mediaUrl,
-        mediaType: latestStatus.mediaType,
-        caption: latestStatus.caption
+        mediaUrl: latestStatus.mediaUrl || null,
+        mediaType: latestStatus.mediaType || null,
+        caption: latestStatus.caption || ''
       });
       // Optionally show a toast
     } catch (error) {
@@ -1003,8 +1003,8 @@ const StatusViewer: React.FC<{
                             await sendMessage(channel.id, currentUser, emoji, undefined, undefined, {
                               statusId: latestStatus.id,
                               userId: latestStatus.userId,
-                              mediaUrl: latestStatus.mediaUrl,
-                              mediaType: latestStatus.mediaType,
+                              mediaUrl: latestStatus.mediaUrl || null,
+                              mediaType: latestStatus.mediaType || null,
                               caption: latestStatus.caption || ''
                             });
                             showToast(`Reação ${emoji} enviada por Direct!`, "success");

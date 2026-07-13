@@ -236,7 +236,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <div className="flex flex-col items-center justify-center w-full gpu-accelerated">
             <img 
-              src="https://img.sanishtech.com/u/47612354b3429905a0e4183c638bcdfb.png" 
+              src="https://www.image2url.com/r2/default/images/1783957698206-a4bc0933-1da2-42af-9e0b-dcb9118a5b5d.png" 
               alt="Logo" 
               className="w-10 h-10 object-contain mb-1 will-change-transform"
               referrerPolicy="no-referrer"

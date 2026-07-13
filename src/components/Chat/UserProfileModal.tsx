@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Shield, Calendar, Mail, Hash, Flag, MessageSquare, MoreVertical, AlertTriangle, Grid, History, Users, Heart, MessageCircle } from 'lucide-react';
+import { X, Shield, Calendar, Mail, Hash, Flag, MessageSquare, MoreVertical, AlertTriangle, Grid, History, Users, Heart, MessageCircle, Camera, Loader2 } from 'lucide-react';
 import { UserProfile, Channel, Status } from '@/src/types';
 import { cn } from '@/src/lib/utils';
-import { reportUser, getStatuses } from '@/src/services/firebaseService';
+import { reportUser, getStatuses, uploadFile, updateUserProfile, syncUserPhotoInMessages } from '@/src/services/firebaseService';
 import { DEFAULT_AVATAR } from '@/src/constants';
 import { UserStatusView } from '../Status/UserStatusView';
 
@@ -35,6 +35,45 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ user, curren
   const [activeTab, setActiveTab] = useState<'about' | 'posts' | 'stories' | 'communities'>('about');
   const [userStatuses, setUserStatuses] = useState<Status[]>([]);
   const [viewingStatusId, setViewingStatusId] = useState<string | null>(null);
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState<number | null>(null);
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || user.uid !== currentUser.uid) return;
+
+    if (file.type === 'image/gif' && file.size > 800 * 1024) {
+      alert('O arquivo GIF é muito grande (máximo 800KB).');
+      return;
+    } else if (file.size > 5 * 1024 * 1024) {
+      alert('A imagem é muito grande. O limite é 5MB.');
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    setAvatarUploadProgress(0);
+    
+    try {
+      const path = `avatars/${currentUser.uid}_${Date.now()}`;
+      const photoURL = await uploadFile(file, path, (progress) => {
+        setAvatarUploadProgress(progress);
+      });
+      
+      setAvatarUploadProgress(100);
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      await updateUserProfile(currentUser.uid, { photoURL, isPrivate: true });
+      syncUserPhotoInMessages(currentUser.uid, photoURL).catch(console.error);
+    } catch (error) {
+      console.error("Failed to upload avatar", error);
+      alert('Erro ao atualizar foto de perfil.');
+    } finally {
+      setIsUploadingAvatar(false);
+      setAvatarUploadProgress(null);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -117,15 +156,37 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ user, curren
           {/* Avatar Section */}
           <div className="px-4 relative h-12">
             <div className="absolute -top-10 left-4 p-1.5 bg-[#1e1f22] rounded-full">
-              <div className="relative">
+              <div className={cn("relative", user.uid === currentUser.uid && "cursor-pointer group")} onClick={() => user.uid === currentUser.uid && fileInputRef.current?.click()}>
                 <img 
                   src={user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=random`} 
                   alt={user.displayName}
                   className="w-[85px] h-[85px] rounded-full object-cover border-[6px] border-[#1e1f22] will-change-transform"
                   referrerPolicy="no-referrer"
                 />
+                
+                {user.uid === currentUser.uid && (
+                  <>
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10 m-[6px]">
+                      <Camera className="w-8 h-8 text-white" />
+                    </div>
+                    {avatarUploadProgress !== null && (
+                      <div className="absolute inset-0 bg-black/70 rounded-full flex flex-col items-center justify-center text-white text-xs font-semibold select-none z-20 m-[6px]">
+                        <Loader2 className="w-6 h-6 animate-spin text-[#5865f2] mb-1" />
+                        <span>{Math.round(avatarUploadProgress)}%</span>
+                      </div>
+                    )}
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept="image/*"
+                      onChange={handlePhotoChange}
+                    />
+                  </>
+                )}
+
                 <div className={cn(
-                  "absolute bottom-1 right-1 w-5 h-5 border-[4px] border-[#1e1f22] rounded-full",
+                  "absolute bottom-1 right-1 w-5 h-5 border-[4px] border-[#1e1f22] rounded-full z-30",
                   getStatusColor(user.status)
                 )}>
                   {user.status === 'dnd' && (
