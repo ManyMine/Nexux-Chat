@@ -218,7 +218,7 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
     if (onProgress) {
       const uploadTask = uploadBytesResumable(storageRef, processedFile);
       return await new Promise<string>((resolve, reject) => {
-        // Enforce a 10-minute timeout to allow uploading large files without timing out
+        // Enforce a 15-second timeout to allow uploading files without timing out too long
         const timeoutId = setTimeout(() => {
           console.warn("Storage upload timed out. Cancelling task and triggering Base64 fallback.");
           try {
@@ -228,7 +228,7 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
           }
           cleanup();
           reject(new Error("Storage upload timed out"));
-        }, 600000);
+        }, 15000);
 
         uploadTask.on('state_changed', 
           (snapshot) => {
@@ -258,10 +258,10 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
         );
       });
     } else {
-      // Set a similar 10-minute timeout for non-progress upload bytes
+      // Set a similar 15-second timeout for non-progress upload bytes
       const uploadPromise = uploadBytes(storageRef, processedFile).then(snapshot => getDownloadURL(snapshot.ref));
       const timeoutPromise = new Promise<string>((_, reject) => 
-        setTimeout(() => reject(new Error("Storage upload timed out")), 600000)
+        setTimeout(() => reject(new Error("Storage upload timed out")), 15000)
       );
       return await Promise.race([uploadPromise, timeoutPromise]);
     }

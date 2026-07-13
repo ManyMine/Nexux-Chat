@@ -62,7 +62,7 @@ export const AuthLayout: React.FC<AuthLayoutProps> = ({ children, title, subtitl
             className="bg-bg-tertiary p-6 rounded-full mb-6 shadow-2xl shadow-black/30 flex items-center justify-center overflow-hidden"
           >
             <img 
-              src="https://files.catbox.moe/2ljohq.png" 
+              src="https://www.image2url.com/r2/default/images/1783957698206-a4bc0933-1da2-42af-9e0b-dcb9118a5b5d.png" 
               alt="Logo" 
               className="w-28 h-28 object-cover rounded-full"
               referrerPolicy="no-referrer"
