@@ -1,5 +1,6 @@
 {
   "name": "Noton Nexus",
   "description": "A real-time messaging platform with Discord-style channels and WhatsApp-style direct messages. Features authentication, password recovery, and real-time updates.",
-  "requestFramePermissions": ["camera", "microphone", "display-capture"]
+  "requestFramePermissions": ["camera", "microphone", "display-capture"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

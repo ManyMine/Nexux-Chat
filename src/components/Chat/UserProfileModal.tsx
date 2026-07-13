@@ -154,6 +154,11 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({ user, curren
                     {user.role === 'admin' && (
                       <Shield className="w-4 h-4 ml-2 text-[#5865f2]" />
                     )}
+                    {user.customStatus && (
+                      <span className="text-sm font-normal text-[#b5bac1] ml-2 truncate max-w-[150px]">
+                        {user.customStatus}
+                      </span>
+                    )}
                   </h2>
                 </div>
                 <p className="text-xs text-[#b5bac1] font-medium">{user.username || user.displayName.toLowerCase().replace(/\s/g, '')}</p>

@@ -263,13 +263,13 @@ export const UserPanel: React.FC<UserPanelProps> = ({
           <p className="text-sm font-bold text-text-primary truncate leading-tight group-hover:text-text-secondary">
             {user.displayName}
           </p>
-          <p className="text-[10px] text-text-muted truncate leading-tight capitalize">
+          <p className="text-[10px] text-text-muted truncate leading-tight">
             {user.isAnonymous ? (
               <span className="flex items-center text-color-warning">
                 <Clock className="w-2.5 h-2.5 mr-1" />
                 {timeLeft}
               </span>
-            ) : getStatusText(user.status)}
+            ) : (user.customStatus || getStatusText(user.status))}
           </p>
         </div>
       </div>

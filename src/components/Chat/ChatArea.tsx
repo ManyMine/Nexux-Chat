@@ -31,7 +31,7 @@ import { speakText } from '@/src/lib/tts';
 interface ChatAreaProps {
   activeChannel: Channel | null;
   messages: Message[];
-  onSendMessage: (content: string, file?: File) => Promise<void>;
+  onSendMessage: (content: string, file?: File, onProgress?: (progress: number) => void) => Promise<void>;
   isLoading?: boolean;
   currentUser: UserProfile;
   typingUsers: string[];
@@ -151,6 +151,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [pendingMessageFiles, setPendingMessageFiles] = useState<File[]>([]);
   const [pendingMessageFilePreviews, setPendingMessageFilePreviews] = useState<string[]>([]);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -494,6 +495,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
       // If we are sending standard messages/files
       setIsUploading(true);
+      setUploadProgress(0);
       (async () => {
         try {
           if (filesToSend.length > 0) {
@@ -501,7 +503,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             for (let i = 0; i < filesToSend.length; i++) {
               const currentFile = filesToSend[i];
               const contentForThisMessage = (i === 0) ? trimmedInput : '';
-              await onSendMessage(contentForThisMessage, currentFile);
+              await onSendMessage(contentForThisMessage, currentFile, (progress) => {
+                setUploadProgress(progress);
+              });
             }
           } else if (trimmedInput) {
             // Just send the text message
@@ -511,6 +515,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
           console.error("Error sending files/message:", error);
         } finally {
           setIsUploading(false);
+          setUploadProgress(null);
         }
       })();
     }
@@ -868,14 +873,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         const files = e.dataTransfer?.files;
         if (files && files.length > 0) {
           const filesArray = Array.from(files);
-          setPendingMessageFiles(prev => [...prev, ...filesArray]);
-          const newPreviews = filesArray.map(file => {
-            if (file.type.startsWith('image/')) {
-              return URL.createObjectURL(file);
+          setIsUploading(true);
+          setUploadProgress(0);
+          (async () => {
+            try {
+              for (let i = 0; i < filesArray.length; i++) {
+                await onSendMessage('', filesArray[i], (progress) => {
+                  setUploadProgress(progress);
+                });
+              }
+            } catch (err) {
+              console.error("Erro ao enviar arquivos arrastados:", err);
+            } finally {
+              setIsUploading(false);
+              setUploadProgress(null);
             }
-            return '';
-          });
-          setPendingMessageFilePreviews(prev => [...prev, ...newPreviews]);
+          })();
         }
       }}
       onClick={() => {
@@ -1349,39 +1362,71 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         </div>
                       )}
                     </div>
-                    </div>
 
                     {msg.fileUrl && (
-                        (() => {
-                           console.log("Rendering message:", msg.fileUrl, msg.fileType);
-                           const isAudio = !!(msg.fileType?.startsWith('audio/') || 
-                                           msg.fileUrl?.toLowerCase().includes('audio') ||
-                                           msg.fileUrl?.toLowerCase().match(/\.(mp3|wav|ogg|webm|mpeg|aac|m4a)$/));
-                           console.log("isAudio result:", isAudio, "for url:", msg.fileUrl, "type:", msg.fileType);
-                           return msg.fileType?.startsWith('image/') ? (
-                          <img 
-                            src={msg.fileUrl} 
-                            alt="attachment" 
-                            className="max-w-xs rounded-lg mt-2 cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={() => setLightboxFile({ url: msg.fileUrl!, type: 'image' })}
-                            referrerPolicy="no-referrer" 
-                          />
-                        ) : isAudio ? (
-                          <AudioPlayer url={msg.fileUrl!} isSent={msg.senderId === currentUser.uid} showDuration={true} />
-                        ) : msg.fileType?.startsWith('video/') ? (
-                          <video 
-                            controls 
-                            src={msg.fileUrl} 
-                            className="max-w-xs rounded-lg mt-2 cursor-pointer hover:opacity-90 transition-opacity"
-                            onClick={() => setLightboxFile({ url: msg.fileUrl!, type: 'video' })}
-                          />
-                        ) : (
-                          <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" className="text-[#5865f2] hover:underline mt-2 block">
-                            Download File
-                          </a>
+                      (() => {
+                        const cleanUrl = msg.fileUrl.split('?')[0].split('#')[0].toLowerCase();
+                        const isImage = !!(
+                          msg.fileType?.startsWith('image/') ||
+                          msg.fileUrl?.startsWith('data:image/') ||
+                          cleanUrl.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/)
                         );
-                        })()
-                      )}
+                        const isVideo = !!(
+                          msg.fileType?.startsWith('video/') ||
+                          msg.fileUrl?.startsWith('data:video/') ||
+                          cleanUrl.match(/\.(mp4|webm|ogg|mov|avi|mkv|wmv|flv|3gp)$/)
+                        );
+                        const isAudio = !!(
+                          msg.fileType?.startsWith('audio/') ||
+                          msg.fileUrl?.startsWith('data:audio/') ||
+                          cleanUrl.match(/\.(mp3|wav|ogg|webm|mpeg|aac|m4a)$/)
+                        );
+
+                        if (isImage) {
+                          return (
+                            <img 
+                              src={msg.fileUrl} 
+                              alt="Anexo de Imagem" 
+                              className="max-w-xs md:max-w-md rounded-lg mt-2 cursor-pointer hover:opacity-90 transition-opacity max-h-[300px] object-contain border border-border-primary/50 shadow-sm"
+                              onClick={() => setLightboxFile({ url: msg.fileUrl!, type: 'image' })}
+                              referrerPolicy="no-referrer" 
+                            />
+                          );
+                        } else if (isAudio) {
+                          return (
+                            <div className="mt-2">
+                              <AudioPlayer url={msg.fileUrl!} isSent={msg.senderId === currentUser.uid} showDuration={true} />
+                            </div>
+                          );
+                        } else if (isVideo) {
+                          return (
+                            <video 
+                              controls 
+                              src={msg.fileUrl} 
+                              className="max-w-xs md:max-w-md rounded-lg mt-2 cursor-pointer hover:opacity-95 transition-opacity max-h-[300px] border border-border-primary/50 shadow-sm bg-black"
+                              onClick={(e) => {
+                                if (e.target === e.currentTarget) {
+                                  setLightboxFile({ url: msg.fileUrl!, type: 'video' });
+                                }
+                              }}
+                            />
+                          );
+                        } else {
+                          return (
+                            <a 
+                              href={msg.fileUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="inline-flex items-center space-x-2 text-[#5865f2] dark:text-[#7289da] hover:underline mt-2 bg-bg-secondary hover:bg-bg-tertiary transition-colors px-4 py-2.5 rounded-lg border border-border-primary/50 shadow-sm select-none"
+                            >
+                              <FileText className="w-5 h-5 text-text-muted" />
+                              <span className="text-sm font-medium">Download do Arquivo</span>
+                              <Download className="w-4 h-4 text-text-muted" />
+                            </a>
+                          );
+                        }
+                      })()
+                    )}
 
                       {msg.statusReply && (
                         <div 
@@ -1450,6 +1495,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                           </span>
                         </div>
                       )}
+                    </div>
                     </div>
 
                     {/* Quick Action Bar (Hover) */}
@@ -1679,10 +1725,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             <form 
               onSubmit={handleSubmit}
               className={cn(
-                "bg-bg-tertiary px-3 py-2 md:px-4 md:py-2.5 flex items-center space-x-2 md:space-x-4 shadow-sm rounded-2xl md:rounded-xl border border-border-primary/50 focus-within:border-color-brand/50 transition-all overflow-hidden",
+                "bg-bg-tertiary px-3 py-2 md:px-4 md:py-2.5 flex items-center space-x-2 md:space-x-4 shadow-sm rounded-2xl md:rounded-xl border border-border-primary/50 focus-within:border-color-brand/50 transition-all overflow-hidden relative",
                 editingMessageId ? "rounded-t-none" : ""
               )}
             >
+              {isUploading && uploadProgress !== null && (
+                <div className="absolute top-0 left-0 right-0 h-[3px] bg-bg-secondary overflow-hidden">
+                  <div 
+                    className="h-full bg-[#5865f2] transition-all duration-300 rounded-r"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              )}
               {!editingMessageId && (
                 <div className="flex items-center space-x-1 md:space-x-2 flex-shrink-0">
                   <button 
@@ -1718,14 +1772,22 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 onChange={(e) => {
                   if (e.target.files && e.target.files.length > 0) {
                     const filesArray = Array.from(e.target.files);
-                    setPendingMessageFiles(prev => [...prev, ...filesArray]);
-                    const newPreviews = filesArray.map(file => {
-                      if (file.type.startsWith('image/')) {
-                        return URL.createObjectURL(file);
+                    setIsUploading(true);
+                    setUploadProgress(0);
+                    (async () => {
+                      try {
+                        for (let i = 0; i < filesArray.length; i++) {
+                          await onSendMessage('', filesArray[i], (progress) => {
+                            setUploadProgress(progress);
+                          });
+                        }
+                      } catch (err) {
+                        console.error("Erro ao enviar arquivos selecionados:", err);
+                      } finally {
+                        setIsUploading(false);
+                        setUploadProgress(null);
                       }
-                      return '';
-                    });
-                    setPendingMessageFilePreviews(prev => [...prev, ...newPreviews]);
+                    })();
                     e.target.value = '';
                   }
                 }}
@@ -1920,7 +1982,12 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                   )}
                 >
                   {isUploading ? (
-                    <Loader2 className="w-5 h-5 md:w-4 md:h-4 animate-spin text-color-brand" />
+                    <div className="flex items-center space-x-1 px-1">
+                      <Loader2 className="w-5 h-5 md:w-4 md:h-4 animate-spin text-color-brand" />
+                      {uploadProgress !== null && (
+                        <span className="text-[10px] text-[#5865f2] font-semibold">{uploadProgress}%</span>
+                      )}
+                    </div>
                   ) : (
                     <Send className="w-5 h-5 md:w-4 md:h-4" />
                   )}

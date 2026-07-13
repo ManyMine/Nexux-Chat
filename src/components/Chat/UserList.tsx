@@ -325,8 +325,8 @@ const UserItem: React.FC<{
           )}>
             {displayName}
           </span>
-          <span className="text-[10px] text-text-muted capitalize">
-            {getStatusText(user.status)}
+          <span className="text-[10px] text-text-muted truncate w-full" title={user.customStatus || getStatusText(user.status)}>
+            {user.customStatus || getStatusText(user.status)}
           </span>
         </div>
       </button>

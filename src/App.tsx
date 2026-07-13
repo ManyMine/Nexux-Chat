@@ -42,7 +42,8 @@ import {
   requestPhoneCode,
   verifyPhoneCode,
   clearRecaptcha,
-  updateChannel
+  updateChannel,
+  syncUserPhotoInMessages
 } from './services/firebaseService';
 import { Loader2 } from 'lucide-react';
 import { ConfirmationResult } from 'firebase/auth';
@@ -136,18 +137,16 @@ export default function App() {
           if (snapshot.exists()) {
             const userData = snapshot.data() as UserProfile;
             
-            // Force admin role for belepuff@gmail.com if not already set
+            // Force admin role for belepuff@gmail.com if not already set (non-blocking)
             if (user.email === 'belepuff@gmail.com' && userData.role !== 'admin') {
-              await setDoc(doc(db, USERS_COLLECTION, user.uid), { role: 'admin' }, { merge: true });
-              return; // The listener will trigger again
+              setDoc(doc(db, USERS_COLLECTION, user.uid), { role: 'admin' }, { merge: true }).catch(err => console.error("Error setting admin:", err));
             }
 
-            // Sync user's default/Google photo if it exists but is missing in Firestore
+            // Sync user's default/Google photo if it exists but is missing in Firestore (non-blocking)
             if (user.photoURL && !userData.photoURL) {
-              await setDoc(doc(db, USERS_COLLECTION, user.uid), { photoURL: user.photoURL }, { merge: true });
-              const { syncUserPhotoInMessages } = await import('./services/firebaseService');
-              await syncUserPhotoInMessages(user.uid, user.photoURL);
-              return; // The listener will trigger again
+              setDoc(doc(db, USERS_COLLECTION, user.uid), { photoURL: user.photoURL }, { merge: true })
+                .then(() => syncUserPhotoInMessages(user.uid, user.photoURL!))
+                .catch(err => console.error("Error syncing photoURL:", err));
             }
 
             if (userData.isBlocked) {
@@ -585,7 +584,7 @@ export default function App() {
     setActiveCall(null);
   };
 
-  const handleSendMessage = async (content: string, file?: File) => {
+  const handleSendMessage = async (content: string, file?: File, onProgress?: (progress: number) => void) => {
     if (activeChannel && currentUser) {
       // Immediate UI update could be handled here by appending a temporary message
       // if the application had local state to manage it. 
@@ -598,7 +597,7 @@ export default function App() {
              return;
           }
           
-          const fileUrl = await uploadFile(file, `messages/${activeChannel.id}/${Date.now()}_${file.name}`);
+          const fileUrl = await uploadFile(file, `messages/${activeChannel.id}/${Date.now()}_${file.name}`, onProgress);
           await sendMessage(activeChannel.id, currentUser, content, fileUrl, file.type);
         } else {
           await sendMessage(activeChannel.id, currentUser, content);

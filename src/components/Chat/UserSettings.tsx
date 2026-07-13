@@ -38,6 +38,7 @@ const profileSchema = z.object({
   username: z.string().min(2, 'Username muito curto').regex(/^[a-zA-Z0-9_]+$/, 'Apenas letras, números e sublinhados'),
   about: z.string().max(200, 'Máximo 200 caracteres').optional(),
   status: z.enum(['online', 'offline', 'away', 'dnd', 'invisible', 'auto']).optional(),
+  customStatus: z.string().max(50, 'Máximo 50 caracteres').optional(),
 });
 
 export const UserSettings: React.FC<UserSettingsProps> = ({
@@ -103,6 +104,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
             .substring(0, 15)
         : ''),
       about: currentUser.about || '', 
+      customStatus: currentUser.customStatus || '',
       status: currentUser.status || 'auto',
     }
   });
@@ -118,6 +120,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
               .substring(0, 15)
           : ''),
         about: currentUser.about || '',
+        customStatus: currentUser.customStatus || '',
         status: currentUser.status || 'auto',
       });
       setLocalBackground(currentUser.background);
@@ -157,13 +160,17 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
     setIsUpdating(true);
     setUpdateError(null);
     setUpdateSuccess(null);
+    setAvatarUploadProgress(pendingFile ? 0 : null);
     try {
       let photoURL = currentUser.photoURL;
       
       // Auto-upload avatar photo if a changed file is pending in preview
       if (pendingFile) {
         const path = `avatars/${currentUser.uid}_${Date.now()}`;
-        photoURL = await uploadFile(pendingFile, path);
+        photoURL = await uploadFile(pendingFile, path, (progress) => {
+          setAvatarUploadProgress(progress);
+        });
+        setOptimisticPhotoURL(photoURL);
         setPreviewPhotoURL(null);
         setPendingFile(null);
       }
@@ -172,14 +179,21 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
         displayName: data.displayName,
         username: data.username,
         about: data.about,
+        customStatus: data.customStatus,
         status: data.status,
         photoURL: photoURL || undefined
       });
+      
+      if (photoURL && photoURL !== currentUser.photoURL) {
+        syncUserPhotoInMessages(currentUser.uid, photoURL).catch(console.error);
+      }
+      
       setUpdateSuccess('Perfil atualizado com sucesso!');
     } catch (error: any) {
       setUpdateError(error.message || 'Erro ao atualizar perfil');
     } finally {
       setIsUpdating(false);
+      setAvatarUploadProgress(null);
     }
   };
 
@@ -200,6 +214,8 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
   const [previewPhotoURL, setPreviewPhotoURL] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  const [optimisticPhotoURL, setOptimisticPhotoURL] = useState<string | null>(null);
+  const [avatarUploadProgress, setAvatarUploadProgress] = useState<number | null>(null);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -207,6 +223,12 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
       isMounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (currentUser?.photoURL === optimisticPhotoURL) {
+      setOptimisticPhotoURL(null);
+    }
+  }, [currentUser?.photoURL, optimisticPhotoURL]);
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -230,11 +252,16 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
     if (!pendingFile) return;
 
     setIsSavingAvatar(true);
+    setAvatarUploadProgress(0);
     setUpdateError(null);
     setUpdateSuccess(null); // Clear previous messages
     try {
       const path = `avatars/${currentUser.uid}_${Date.now()}`;
-      const photoURL = await uploadFile(pendingFile, path);
+      const photoURL = await uploadFile(pendingFile, path, (progress) => {
+        setAvatarUploadProgress(progress);
+      });
+      
+      setOptimisticPhotoURL(photoURL);
       
       // Safe to proceed, component is mounted
       await updateUserProfile(currentUser.uid, { photoURL });
@@ -253,6 +280,7 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
     } finally {
       if (!isMounted.current) return;
       setIsSavingAvatar(false);
+      setAvatarUploadProgress(null);
     }
   };
 
@@ -569,17 +597,52 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                     <div className="flex items-center space-x-6">
                       <div className="relative group">
                         <img 
-                          src={previewPhotoURL || currentUser.photoURL || DEFAULT_AVATAR} 
+                          src={optimisticPhotoURL || previewPhotoURL || currentUser.photoURL || DEFAULT_AVATAR} 
                           alt="Avatar" 
                           className="w-24 h-24 rounded-full object-cover border-4 border-bg-primary bg-bg-primary"
                           referrerPolicy="no-referrer"
                         />
                         <button 
                           onClick={() => fileInputRef.current?.click()}
-                          className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity z-10"
                         >
                           <Camera className="w-8 h-8 text-white" />
                         </button>
+                        {avatarUploadProgress !== null && (
+                          <div className="absolute inset-0 bg-black/70 rounded-full flex flex-col items-center justify-center text-white text-xs font-semibold select-none z-20">
+                            <div className="relative w-16 h-16 flex items-center justify-center">
+                              {/* Circular Progress SVG */}
+                              <svg className="absolute inset-0 w-full h-full transform -rotate-90">
+                                <circle
+                                  cx="32"
+                                  cy="32"
+                                  r="26"
+                                  className="stroke-white/10"
+                                  strokeWidth="3.5"
+                                  fill="transparent"
+                                />
+                                <circle
+                                  cx="32"
+                                  cy="32"
+                                  r="26"
+                                  className="stroke-[#5865f2] transition-all duration-300 ease-out"
+                                  strokeWidth="3.5"
+                                  fill="transparent"
+                                  strokeDasharray={2 * Math.PI * 26}
+                                  strokeDashoffset={2 * Math.PI * 26 * (1 - avatarUploadProgress / 100)}
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                              {/* Spinner and Text inside Circle */}
+                              <div className="flex flex-col items-center justify-center text-center">
+                                <Loader2 className="w-4 h-4 animate-spin text-[#5865f2] mb-0.5" />
+                                <span className="text-[11px] font-bold text-white tracking-tighter leading-none">
+                                  {avatarUploadProgress}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <input 
                           type="file" 
                           ref={fileInputRef} 
@@ -593,9 +656,10 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                           <button
                             onClick={saveAvatar}
                             disabled={isSavingAvatar}
-                            className="bg-color-brand hover:bg-color-brand/80 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors mb-2 w-full"
+                            className="bg-[#5865f2] hover:bg-[#4752c4] text-white px-4 py-1.5 rounded text-sm font-medium transition-colors mb-2 w-full flex items-center justify-center gap-2"
                           >
-                            {isSavingAvatar ? 'Salvando...' : 'Salvar Perfil'}
+                            {isSavingAvatar && <Loader2 className="w-4 h-4 animate-spin" />}
+                            <span>{isSavingAvatar ? 'Salvando...' : 'Salvar Perfil'}</span>
                           </button>
                         )}
                         <button 
@@ -637,6 +701,15 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
                             {...registerProfile('about')}
                             className="w-full bg-bg-primary text-text-primary p-3 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors resize-none h-24"
                             placeholder="Escreva algo sobre você..."
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-xs font-bold text-text-muted uppercase">Status Personalizado</label>
+                          <input 
+                            {...registerProfile('customStatus')}
+                            className="w-full bg-bg-primary text-text-primary p-2.5 rounded border border-border-primary outline-none focus:border-[#5865f2] transition-colors"
+                            placeholder="Seu status..."
                           />
                         </div>
 

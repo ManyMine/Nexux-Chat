@@ -38,7 +38,8 @@ import {
 import { 
   ref, 
   uploadBytes, 
-  getDownloadURL 
+  getDownloadURL,
+  uploadBytesResumable
 } from 'firebase/storage';
 import { auth, db, storage } from '../firebase';
 import { UserProfile, Channel, Message, Call, Status, StatusComment } from '../types';
@@ -168,7 +169,7 @@ const compressImage = async (file: File): Promise<File> => {
   });
 };
 
-export const uploadFile = async (file: File, path: string) => {
+export const uploadFile = async (file: File, path: string, onProgress?: (progress: number) => void): Promise<string> => {
   // Compress image if it's an avatar and not a GIF to avoid huge payloads
   let processedFile = file;
   if (path.includes('avatars/') && file.type !== 'image/gif') {
@@ -179,17 +180,82 @@ export const uploadFile = async (file: File, path: string) => {
     }
   }
 
+  // Active smooth progress tracking for low bandwidth connections
+  let currentProgress = 0;
+  let intervalId: any = null;
+
+  const updateProgress = (targetProgress: number) => {
+    if (onProgress && targetProgress > currentProgress) {
+      currentProgress = targetProgress;
+      onProgress(currentProgress);
+    }
+  };
+
+  if (onProgress) {
+    // Start with a small visual confirmation immediately
+    updateProgress(5);
+    // Smooth crawler to ensure the bar keeps moving even if Firebase reports sparse events on bad internet
+    intervalId = setInterval(() => {
+      if (currentProgress < 95) {
+        // Slow crawling increments
+        const increment = Math.floor(Math.random() * 2) + 1;
+        updateProgress(Math.min(95, currentProgress + increment));
+      }
+    }, 450);
+  }
+
+  const cleanup = () => {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+  };
+
   try {
     const storageRef = ref(storage, path);
-    const snapshot = await uploadBytes(storageRef, processedFile);
-    return await getDownloadURL(snapshot.ref);
+    if (onProgress) {
+      const uploadTask = uploadBytesResumable(storageRef, processedFile);
+      return await new Promise<string>((resolve, reject) => {
+        uploadTask.on('state_changed', 
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            const percentage = isNaN(progress) ? 0 : Math.round(progress);
+            // Catch up to real progress if it is faster/further ahead than simulated
+            updateProgress(percentage);
+          }, 
+          (error) => {
+            cleanup();
+            reject(error);
+          }, 
+          async () => {
+            cleanup();
+            updateProgress(100);
+            try {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              resolve(downloadURL);
+            } catch (urlErr) {
+              reject(urlErr);
+            }
+          }
+        );
+      });
+    } else {
+      const snapshot = await uploadBytes(storageRef, processedFile);
+      return await getDownloadURL(snapshot.ref);
+    }
   } catch (storageError) {
-    console.warn("Storage upload failed, falling back to Base64 data URL:", storageError);
-    // Instant Base64 Data URL fallback! This will NEVER fail and saves instantly!
+    cleanup();
+    console.warn("Storage upload failed, falling back to Base64 data URL if size permits:", storageError);
+    if (processedFile.size > 800000) { // ~800KB limit
+      throw new Error("O arquivo é muito grande para envio via Base64. Por favor, verifique se o Firebase Storage está ativo e com permissões corretas.");
+    }
+    // Instant Base64 Data URL fallback for small files!
+    updateProgress(65);
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
+          updateProgress(100);
           resolve(reader.result);
         } else {
           reject(new Error("Erro ao carregar arquivo como Base64"));
