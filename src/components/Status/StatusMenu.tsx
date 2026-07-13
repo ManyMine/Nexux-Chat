@@ -498,6 +498,7 @@ const StatusViewer: React.FC<{
   onChannelSelect: (channel: Channel) => void;
 }> = ({ status: initialStatus, allStatuses, currentUser, onClose, setStatuses, orderedUserIds, channels, onChannelSelect }) => {
   const { t } = useI18n();
+  const { showToast } = useToast();
   const [currentStatus, setCurrentStatus] = useState(initialStatus);
   const [comment, setComment] = useState('');
   const [replyingTo, setReplyingTo] = useState<StatusComment | null>(null);
@@ -676,8 +677,8 @@ const StatusViewer: React.FC<{
     }
   };
 
-  const handleComment = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleComment = async (e?: React.SyntheticEvent) => {
+    if (e) e.preventDefault();
     if (latestStatus.id.startsWith('temp-')) return;
     if (!comment.trim()) return;
     
@@ -699,6 +700,23 @@ const StatusViewer: React.FC<{
           ? { ...s, comments: [...s.comments, newComment] }
           : s
       ));
+      
+      // Instagram-style direct message (DM) auto-send if commenting on another user's status
+      if (latestStatus.userId !== currentUser.uid) {
+        try {
+          const channel = await createPrivateChannel(currentUser.uid, latestStatus.userId);
+          await sendMessage(channel.id, currentUser, commentText, undefined, undefined, {
+            statusId: latestStatus.id,
+            userId: latestStatus.userId,
+            mediaUrl: latestStatus.mediaUrl,
+            mediaType: latestStatus.mediaType,
+            caption: latestStatus.caption || ''
+          });
+          showToast("Resposta enviada também via Direct!", "success");
+        } catch (chatErr) {
+          console.error("Failed to automatically send DM reply:", chatErr);
+        }
+      }
       
       setReplyingTo(null);
     } catch (error) {
@@ -977,6 +995,23 @@ const StatusViewer: React.FC<{
                               }] }
                             : s
                         ));
+
+                        // Instagram-style direct message (DM) auto-send if reacting to another user's status
+                        if (latestStatus.userId !== currentUser.uid) {
+                          try {
+                            const channel = await createPrivateChannel(currentUser.uid, latestStatus.userId);
+                            await sendMessage(channel.id, currentUser, emoji, undefined, undefined, {
+                              statusId: latestStatus.id,
+                              userId: latestStatus.userId,
+                              mediaUrl: latestStatus.mediaUrl,
+                              mediaType: latestStatus.mediaType,
+                              caption: latestStatus.caption || ''
+                            });
+                            showToast(`Reação ${emoji} enviada por Direct!`, "success");
+                          } catch (chatErr) {
+                            console.error("Failed to automatically send DM reply:", chatErr);
+                          }
+                        }
                       } catch (err) {
                         console.error("Failed to send emoji reaction", err);
                       }
@@ -1099,6 +1134,7 @@ const StatusViewer: React.FC<{
                 <button 
                   type="submit"
                   disabled={!comment.trim()}
+                  onClick={(e) => handleComment(e)}
                   className="p-2 mr-1 text-white/70 hover:text-white disabled:opacity-50 transition-colors"
                 >
                   <Send className="w-5 h-5" />
@@ -1139,7 +1175,7 @@ const StatusViewer: React.FC<{
 
         {/* Stats Drawer (Owner only) */}
         <AnimatePresence>
-          {showStats && currentStatus.userId === currentUser.uid && (
+          {showStats && latestStatus.userId === currentUser.uid && (
             <motion.div 
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
@@ -1160,13 +1196,13 @@ const StatusViewer: React.FC<{
                 <div>
                   <div className="flex items-center space-x-2 mb-3">
                     <Eye className="w-5 h-5 text-text-muted" />
-                    <h5 className="font-bold text-text-secondary">Visualizações ({currentStatus.views?.length || 0})</h5>
+                    <h5 className="font-bold text-text-secondary">Visualizações ({latestStatus.views?.length || 0})</h5>
                   </div>
-                  {(!currentStatus.views || currentStatus.views.length === 0) ? (
+                  {(!latestStatus.views || latestStatus.views.length === 0) ? (
                     <p className="text-sm text-text-muted italic">Nenhuma visualização ainda.</p>
                   ) : (
                     <div className="space-y-2">
-                      {currentStatus.views.map(uid => (
+                      {latestStatus.views.map(uid => (
                         <div key={uid} className="flex items-center space-x-2 p-2 bg-bg-secondary rounded-lg">
                           <div className="w-8 h-8 rounded-full bg-bg-tertiary flex items-center justify-center text-xs text-text-muted">
                             {uid.slice(0, 2)}
@@ -1182,13 +1218,13 @@ const StatusViewer: React.FC<{
                 <div>
                   <div className="flex items-center space-x-2 mb-3">
                     <Heart className="w-5 h-5 text-color-danger" />
-                    <h5 className="font-bold text-text-secondary">Favoritos ({currentStatus.likes.length})</h5>
+                    <h5 className="font-bold text-text-secondary">Favoritos ({latestStatus.likes.length})</h5>
                   </div>
-                  {currentStatus.likes.length === 0 ? (
+                  {latestStatus.likes.length === 0 ? (
                     <p className="text-sm text-text-muted italic">Nenhum favorito ainda.</p>
                   ) : (
                     <div className="space-y-2">
-                      {currentStatus.likes.map(uid => (
+                      {latestStatus.likes.map(uid => (
                         <div key={uid} className="flex items-center space-x-2 p-2 bg-bg-secondary rounded-lg">
                           <div className="w-8 h-8 rounded-full bg-bg-tertiary flex items-center justify-center text-xs text-text-muted">
                             {uid.slice(0, 2)}
@@ -1204,13 +1240,13 @@ const StatusViewer: React.FC<{
                 <div>
                   <div className="flex items-center space-x-2 mb-3">
                     <MessageCircle className="w-5 h-5 text-blue-500" />
-                    <h5 className="font-bold text-text-secondary">Comentários ({currentStatus.comments.length})</h5>
+                    <h5 className="font-bold text-text-secondary">Comentários ({latestStatus.comments.length})</h5>
                   </div>
-                  {currentStatus.comments.length === 0 ? (
+                  {latestStatus.comments.length === 0 ? (
                     <p className="text-sm text-text-muted italic">Nenhum comentário ainda.</p>
                   ) : (
                     <div className="space-y-3">
-                      {currentStatus.comments.filter(c => !c.parentId).map(c => (
+                      {latestStatus.comments.filter(c => !c.parentId).map(c => (
                         <div key={c.id} className="flex space-x-3 p-3 bg-bg-secondary rounded-lg">
                           <img src={c.userPhoto || DEFAULT_AVATAR || undefined} className="w-8 h-8 rounded-full" />
                           <div>
@@ -1246,10 +1282,10 @@ const StatusViewer: React.FC<{
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {currentStatus.comments.length === 0 ? (
+                {latestStatus.comments.length === 0 ? (
                   <p className="text-text-muted text-center py-8 italic">Seja o primeiro a comentar!</p>
                 ) : (
-                  currentStatus.comments.filter(c => !c.parentId).map(c => (
+                  latestStatus.comments.filter(c => !c.parentId).map(c => (
                     <div key={c.id} className="space-y-3">
                       <div className="flex space-x-3">
                         <div className="w-8 h-8 rounded-full bg-bg-tertiary flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-text-muted overflow-hidden">
@@ -1285,7 +1321,7 @@ const StatusViewer: React.FC<{
                       </div>
 
                       {/* Replies */}
-                      {currentStatus.comments.filter(r => r.parentId === c.id).map(reply => (
+                      {latestStatus.comments.filter(r => r.parentId === c.id).map(reply => (
                         <div key={reply.id} className="flex space-x-3 ml-11">
                           <div className="w-6 h-6 rounded-full bg-bg-tertiary flex-shrink-0 flex items-center justify-center text-[8px] font-bold text-text-muted overflow-hidden">
                             {reply.userPhoto ? (
@@ -1339,6 +1375,7 @@ const StatusViewer: React.FC<{
                 />
                 <button 
                   type="submit" 
+                  onClick={(e) => handleComment(e)}
                   className="p-2 bg-color-brand text-white rounded-full hover:bg-color-brand-hover transition-colors mb-1"
                 >
                   <Send className="w-4 h-4" />

@@ -120,7 +120,7 @@ export const deleteDraft = async (userId: string, channelId: string) => {
     throw error;
   }
 };
-const compressImage = async (file: File): Promise<File> => {
+const compressImage = async (file: File, maxWidth = 1200, maxHeight = 1200): Promise<File> => {
   if (file.type === 'image/gif') {
     return file; // Retorna original para GIFs continuarem animados
   }
@@ -129,20 +129,18 @@ const compressImage = async (file: File): Promise<File> => {
     img.onload = () => {
       URL.revokeObjectURL(img.src);
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 256;
-      const MAX_HEIGHT = 256;
       let width = img.width;
       let height = img.height;
 
       if (width > height) {
-        if (width > MAX_WIDTH) {
-          height = Math.round((height * MAX_WIDTH) / width);
-          width = MAX_WIDTH;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
         }
       } else {
-        if (height > MAX_HEIGHT) {
-          width = Math.round((width * MAX_HEIGHT) / height);
-          height = MAX_HEIGHT;
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
         }
       }
 
@@ -170,13 +168,17 @@ const compressImage = async (file: File): Promise<File> => {
 };
 
 export const uploadFile = async (file: File, path: string, onProgress?: (progress: number) => void): Promise<string> => {
-  // Compress image if it's an avatar and not a GIF to avoid huge payloads
+  // Compress image to avoid huge payloads (especially important for Base64 fallback)
   let processedFile = file;
-  if (path.includes('avatars/') && file.type !== 'image/gif') {
+  if (file.type.startsWith('image/') && file.type !== 'image/gif') {
     try {
-      processedFile = await compressImage(file);
+      if (path.includes('avatars/')) {
+        processedFile = await compressImage(file, 256, 256);
+      } else {
+        processedFile = await compressImage(file, 1600, 1600);
+      }
     } catch (err) {
-      console.warn("Could not compress avatar image, uploading original instead:", err);
+      console.warn("Could not compress image, uploading original instead:", err);
     }
   }
 
@@ -216,8 +218,7 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
     if (onProgress) {
       const uploadTask = uploadBytesResumable(storageRef, processedFile);
       return await new Promise<string>((resolve, reject) => {
-        // Enforce a strict 2-second timeout to prevent the upload from hanging indefinitely
-        // due to missing/unprovisioned Firebase Storage buckets or strict rules.
+        // Enforce a 10-minute timeout to allow uploading large files without timing out
         const timeoutId = setTimeout(() => {
           console.warn("Storage upload timed out. Cancelling task and triggering Base64 fallback.");
           try {
@@ -227,7 +228,7 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
           }
           cleanup();
           reject(new Error("Storage upload timed out"));
-        }, 2000);
+        }, 600000);
 
         uploadTask.on('state_changed', 
           (snapshot) => {
@@ -257,10 +258,10 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
         );
       });
     } else {
-      // Set a similar 2-second timeout for non-progress upload bytes
+      // Set a similar 10-minute timeout for non-progress upload bytes
       const uploadPromise = uploadBytes(storageRef, processedFile).then(snapshot => getDownloadURL(snapshot.ref));
       const timeoutPromise = new Promise<string>((_, reject) => 
-        setTimeout(() => reject(new Error("Storage upload timed out")), 2000)
+        setTimeout(() => reject(new Error("Storage upload timed out")), 600000)
       );
       return await Promise.race([uploadPromise, timeoutPromise]);
     }

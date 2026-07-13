@@ -591,9 +591,9 @@ export default function App() {
       // For now, I'll ensure the upload doesn't block the UI thread unnecessarily.
       try {
         if (file) {
-          // Limit file size (e.g., 100MB is still huge for browser, but limit is safer)
-          if (file.size > 100 * 1024 * 1024) {
-             showToast('Arquivo muito grande (limite 100MB).', 'error');
+          // Limit file size to 1GB to support large file uploads safely
+          if (file.size > 1024 * 1024 * 1024) {
+             showToast('Arquivo muito grande (limite 1GB).', 'error');
              return;
           }
           
@@ -604,7 +604,7 @@ export default function App() {
         }
       } catch (error) {
         console.error("Error sending message:", error);
-        showToast("Erro ao enviar mensagem", "error");
+        showToast(error instanceof Error ? error.message : "Erro ao enviar mensagem", "error");
       }
     }
   };

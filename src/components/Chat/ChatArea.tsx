@@ -1430,20 +1430,36 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
                       {msg.statusReply && (
                         <div 
-                          className="mt-2 p-3 bg-bg-tertiary rounded-lg border-l-4 border-color-brand flex items-start space-x-3 cursor-pointer hover:bg-bg-secondary transition-colors"
+                          className="mt-2 p-2.5 bg-black/50 hover:bg-black/60 border border-white/10 rounded-xl flex items-center space-x-3 cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] select-none"
                           onClick={() => onOpenStatusForUser(msg.statusReply?.userId || msg.senderId)}
                         >
-                          {msg.statusReply.mediaType === 'image' || msg.statusReply.mediaType === 'video' ? (
-                            <img src={msg.statusReply.mediaUrl || undefined} className="w-12 h-12 rounded object-cover will-change-transform" referrerPolicy="no-referrer" />
-                          ) : (
-                            <div className="w-12 h-12 rounded bg-bg-primary flex items-center justify-center">
-                              <Eye className="w-5 h-5 text-text-muted" />
+                          <div className="relative flex-shrink-0 w-11 h-16 rounded-lg overflow-hidden border border-white/20 bg-gradient-to-br from-[#8a3ab9] via-[#e95950] to-[#fccc63] flex items-center justify-center shadow-inner">
+                            {msg.statusReply.mediaType === 'image' || msg.statusReply.mediaType === 'video' || msg.statusReply.mediaType === 'drawing' ? (
+                              <img src={msg.statusReply.mediaUrl || undefined} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : msg.statusReply.mediaType === 'text' ? (
+                              <div className="p-1 text-[8px] font-bold text-white text-center line-clamp-3 leading-tight">
+                                {msg.statusReply.mediaUrl || msg.statusReply.caption}
+                              </div>
+                            ) : (
+                              <Eye className="w-4 h-4 text-white" />
+                            )}
+                            <div className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                              <Sparkles className="w-2 h-2 text-white" />
                             </div>
-                          )}
+                          </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-text-secondary">Respondeu ao status</p>
+                            <div className="flex items-center space-x-1">
+                              <span className="text-[9px] font-semibold text-white/50 tracking-wider uppercase">Status</span>
+                              <span className="w-1 h-1 bg-white/30 rounded-full" />
+                              <span className="text-[9px] font-medium text-white/70">Instagram Style</span>
+                            </div>
+                            <p className="text-xs font-bold text-white mt-0.5">
+                              Respondeu ao status
+                            </p>
                             {msg.statusReply.caption && (
-                              <p className="text-sm text-text-primary line-clamp-1 mt-0.5">{msg.statusReply.caption}</p>
+                              <p className="text-[11px] text-white/75 line-clamp-1 mt-0.5 italic">
+                                "{msg.statusReply.caption}"
+                              </p>
                             )}
                           </div>
                         </div>
