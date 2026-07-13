@@ -170,6 +170,8 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
         photoURL = await uploadFile(pendingFile, path, (progress) => {
           setAvatarUploadProgress(progress);
         });
+        setAvatarUploadProgress(100);
+        await new Promise((resolve) => setTimeout(resolve, 800));
         setOptimisticPhotoURL(photoURL);
         setPreviewPhotoURL(null);
         setPendingFile(null);
@@ -181,7 +183,8 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
         about: data.about,
         customStatus: data.customStatus,
         status: data.status,
-        photoURL: photoURL || undefined
+        photoURL: photoURL || undefined,
+        isPrivate: (photoURL && photoURL !== currentUser.photoURL) ? true : (currentUser.isPrivate !== false)
       });
       
       if (photoURL && photoURL !== currentUser.photoURL) {
@@ -261,10 +264,13 @@ export const UserSettings: React.FC<UserSettingsProps> = ({
         setAvatarUploadProgress(progress);
       });
       
+      setAvatarUploadProgress(100);
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      
       setOptimisticPhotoURL(photoURL);
       
       // Safe to proceed, component is mounted
-      await updateUserProfile(currentUser.uid, { photoURL });
+      await updateUserProfile(currentUser.uid, { photoURL, isPrivate: true });
       
       // Fire-and-forget sync for messages since it shouldn't block the UI
       syncUserPhotoInMessages(currentUser.uid, photoURL).catch(console.error);

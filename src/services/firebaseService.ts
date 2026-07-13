@@ -196,10 +196,10 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
     updateProgress(5);
     // Smooth crawler to ensure the bar keeps moving even if Firebase reports sparse events on bad internet
     intervalId = setInterval(() => {
-      if (currentProgress < 95) {
+      if (currentProgress < 98) {
         // Slow crawling increments
         const increment = Math.floor(Math.random() * 2) + 1;
-        updateProgress(Math.min(95, currentProgress + increment));
+        updateProgress(Math.min(98, currentProgress + increment));
       }
     }, 450);
   }
@@ -230,6 +230,8 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
           async () => {
             cleanup();
             updateProgress(100);
+            // Delay resolution for 800ms so that the 100% state is visible to the user before resolving
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 800));
             try {
               const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
               resolve(downloadURL);
@@ -253,9 +255,10 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
     updateProgress(65);
     return new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
+      reader.onload = async () => {
         if (typeof reader.result === 'string') {
           updateProgress(100);
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 800));
           resolve(reader.result);
         } else {
           reject(new Error("Erro ao carregar arquivo como Base64"));
