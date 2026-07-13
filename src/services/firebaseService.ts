@@ -216,6 +216,19 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
     if (onProgress) {
       const uploadTask = uploadBytesResumable(storageRef, processedFile);
       return await new Promise<string>((resolve, reject) => {
+        // Enforce a strict 2-second timeout to prevent the upload from hanging indefinitely
+        // due to missing/unprovisioned Firebase Storage buckets or strict rules.
+        const timeoutId = setTimeout(() => {
+          console.warn("Storage upload timed out. Cancelling task and triggering Base64 fallback.");
+          try {
+            uploadTask.cancel();
+          } catch (cancelErr) {
+            console.error("Error cancelling upload task:", cancelErr);
+          }
+          cleanup();
+          reject(new Error("Storage upload timed out"));
+        }, 2000);
+
         uploadTask.on('state_changed', 
           (snapshot) => {
             const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
@@ -224,10 +237,12 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
             updateProgress(percentage);
           }, 
           (error) => {
+            clearTimeout(timeoutId);
             cleanup();
             reject(error);
           }, 
           async () => {
+            clearTimeout(timeoutId);
             cleanup();
             updateProgress(100);
             // Delay resolution for 800ms so that the 100% state is visible to the user before resolving
@@ -242,8 +257,12 @@ export const uploadFile = async (file: File, path: string, onProgress?: (progres
         );
       });
     } else {
-      const snapshot = await uploadBytes(storageRef, processedFile);
-      return await getDownloadURL(snapshot.ref);
+      // Set a similar 2-second timeout for non-progress upload bytes
+      const uploadPromise = uploadBytes(storageRef, processedFile).then(snapshot => getDownloadURL(snapshot.ref));
+      const timeoutPromise = new Promise<string>((_, reject) => 
+        setTimeout(() => reject(new Error("Storage upload timed out")), 2000)
+      );
+      return await Promise.race([uploadPromise, timeoutPromise]);
     }
   } catch (storageError) {
     cleanup();
@@ -801,11 +820,15 @@ export const updateUserProfile = async (userId: string, data: Partial<UserProfil
   try {
     const user = auth.currentUser;
     if (user && userId === user.uid) {
-      if (data.displayName) {
-        await updateProfile(user, { displayName: data.displayName });
-      }
-      if (data.photoURL) {
-        await updateProfile(user, { photoURL: data.photoURL });
+      try {
+        if (data.displayName) {
+          await updateProfile(user, { displayName: data.displayName });
+        }
+        if (data.photoURL) {
+          await updateProfile(user, { photoURL: data.photoURL });
+        }
+      } catch (authError) {
+        console.warn("Firebase Auth user profile update failed (gracefully continuing with Firestore update):", authError);
       }
     }
     
