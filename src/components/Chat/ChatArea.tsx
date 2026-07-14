@@ -135,6 +135,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
   const [replyingToMessage, setReplyingToMessage] = useState<Message | null>(null);
   const { settings } = useAccessibility();
+  const getSenderName = (msg: any) => {
+    if (msg.senderId === currentUser.uid) return currentUser.displayName || msg.senderName;
+    const user = allUsers.find(u => u.uid === msg.senderId);
+    return user?.displayName || msg.senderName;
+  };
+
+  const getSenderPhoto = (msg: any) => {
+    if (msg.senderId === currentUser.uid) return currentUser.photoURL || msg.senderPhoto;
+    const user = allUsers.find(u => u.uid === msg.senderId);
+    return user?.photoURL || msg.senderPhoto;
+  };
+
   const prevMessagesLengthRef = useRef(messages.length);
 
   useEffect(() => {
@@ -143,7 +155,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       newMessages.forEach(msg => {
         if (msg.senderId !== currentUser.uid && msg.content) {
           if (settings.morseCode) playMorseCode(msg.content);
-          if (settings.textToSpeech) speakText(`${msg.senderName} disse: ${censorText(msg.content)}`, settings.ttsVoiceName);
+          if (settings.textToSpeech) speakText(`${getSenderName(msg)} disse: ${censorText(msg.content)}`, settings.ttsVoiceName);
         }
       });
     }
@@ -507,7 +519,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         try {
           const replyTo = replyingToMessage ? {
             messageId: replyingToMessage.id,
-            senderName: replyingToMessage.senderName,
+            senderId: replyingToMessage.senderId,
+            senderName: getSenderName(replyingToMessage),
             content: replyingToMessage.content,
             senderPhoto: replyingToMessage.senderPhoto
           } : undefined;
@@ -1096,7 +1109,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                         }}
                       >
                         <div className="flex items-center space-x-2 mb-1">
-                          <span className="font-bold text-text-primary text-sm">{msg.senderName}</span>
+                          <span className="font-bold text-text-primary text-sm">{getSenderName(msg)}</span>
                           <span className="text-[10px] text-text-muted">
                             {getTimestampDate(msg.timestamp)?.toLocaleString() || ''}
                           </span>
@@ -1158,8 +1171,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                       <div key={msg.id} className="p-3 bg-bg-primary rounded-lg border border-border-primary hover:border-color-brand transition-colors group">
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center space-x-2">
-                            <img src={msg.senderPhoto || DEFAULT_AVATAR} className="w-6 h-6 rounded-full" />
-                            <span className="text-xs font-bold text-text-primary">{msg.senderName}</span>
+                            <img src={getSenderPhoto(msg) || DEFAULT_AVATAR} className="w-6 h-6 rounded-full" />
+                            <span className="text-xs font-bold text-text-primary">{getSenderName(msg)}</span>
                           </div>
                           <button 
                             onClick={() => handleTogglePin(msg)}
@@ -1302,8 +1315,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                     )}
                     {!isSameUserAsPrev ? (
                       <img 
-                        src={msg.senderPhoto || DEFAULT_AVATAR} 
-                        alt={msg.senderName}
+                        src={getSenderPhoto(msg) || DEFAULT_AVATAR} 
+                        alt={getSenderName(msg)}
                         onClick={() => handleUserClick(msg.senderId)}
                         className="w-10 h-10 rounded-full object-cover mt-1 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
                         referrerPolicy="no-referrer"
@@ -1319,7 +1332,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             onClick={() => handleUserClick(msg.senderId)}
                             className="font-bold text-text-primary hover:underline cursor-pointer"
                           >
-                            {msg.senderName}
+                            {getSenderName(msg)}
                           </span>
                           <span className="text-[10px] text-text-muted">{time}</span>
                         </div>
@@ -1338,7 +1351,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                             >
                               <CornerDownRight className="w-3 h-3" />
                               <img src={msg.replyTo.senderPhoto || DEFAULT_AVATAR} className="w-4 h-4 rounded-full" />
-                              <span className="font-bold">{msg.replyTo.senderName}</span>
+                              <span className="font-bold">{(allUsers.find(u => u.uid === msg.replyTo.senderId)?.displayName || msg.replyTo.senderName)}</span>
                               <span className="truncate max-w-[200px]">{msg.replyTo.content}</span>
                             </div>
                           )}
@@ -2185,7 +2198,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
                 onClick={() => {
                   const content = messages
                     .filter(m => selectedMessageIds.includes(m.id))
-                    .map(m => `[${getTimestampDate(m.timestamp)?.toLocaleString() || ''}] ${m.senderName}: ${m.content}`)
+                    .map(m => `[${getTimestampDate(m.timestamp)?.toLocaleString() || ''}] ${getSenderName(m)}: ${m.content}`)
                     .join('\n');
                   navigator.clipboard.writeText(content);
                 }}
@@ -2305,7 +2318,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             {contextMenu.message.senderId !== currentUser.uid && allUsers.find(u => u.uid === contextMenu.message.senderId)?.role !== 'admin' && (
               <button 
                 onClick={() => { 
-                  showToast(`Mensagem de ${contextMenu.message.senderName} denunciada.`, "success"); 
+                  showToast(`Mensagem de ${getSenderName(contextMenu.message)} denunciada.`, "success"); 
                   setContextMenu(null); 
                 }}
                 className="w-full flex items-center justify-between px-3 py-1.5 text-sm text-text-secondary hover:bg-[#f23f42] hover:text-white transition-colors group"

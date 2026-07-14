@@ -101,6 +101,7 @@ export interface Message {
   };
   replyTo?: {
     messageId: string;
+    senderId: string;
     senderName: string;
     content: string;
     senderPhoto?: string;
