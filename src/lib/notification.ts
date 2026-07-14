@@ -43,13 +43,18 @@ export const showNativeNotification = (title: string, body: string, channelId: s
   const icon = senderPhoto || defaultIcon;
   const targetUrl = `${window.location.origin}?channelId=${channelId}`;
 
-  const options = {
+  const options: any = {
     body,
     icon,
     badge: defaultIcon,
     tag: channelId,
     renotify: true,
-    data: targetUrl
+    data: targetUrl,
+    actions: [
+      { action: 'mark-read', title: 'MARCAR COMO LIDA' },
+      { action: 'reply', title: 'RESPONDER', type: 'text', placeholder: 'Digite sua resposta...' },
+      { action: 'mute-1h', title: 'SILENCIAR POR 1H' }
+    ]
   };
 
   if ('serviceWorker' in navigator) {

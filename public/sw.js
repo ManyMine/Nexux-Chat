@@ -39,7 +39,19 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data || '/';
+  
+  let targetUrl = event.notification.data || '/';
+  const action = event.action;
+  
+  if (action === 'mark-read') {
+    targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'action=mark-read';
+  } else if (action === 'reply') {
+    const userReply = event.reply || '';
+    targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'action=reply&text=' + encodeURIComponent(userReply);
+  } else if (action === 'mute-1h') {
+    targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'action=mute-1h';
+  }
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
       for (const client of windowClients) {

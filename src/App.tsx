@@ -86,6 +86,19 @@ export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannel, setActiveChannel] = useState<Channel | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [muted1h, setMuted1h] = useState<Record<string, number>>(() => {
+    try {
+      const saved = localStorage.getItem('muted1h');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('muted1h', JSON.stringify(muted1h));
+  }, [muted1h]);
+
   const unreadChannels = React.useMemo(() => new Set(Object.keys(unreadCounts).filter(k => unreadCounts[k] > 0)), [unreadCounts]);
   const totalUnreadCount = Object.values(unreadCounts).reduce((acc, count) => acc + count, 0);
 
@@ -321,20 +334,26 @@ export default function App() {
                 // Add to unread set
                 setUnreadCounts(prev => ({ ...prev, [channel.id]: (prev[channel.id] || 0) + 1 }));
                 
-                const notificationTitle = channel.type === 'private'
-                  ? msg.senderName
-                  : `${msg.senderName} (#${channel.name})`;
+                const isMutedByFirebase = channel.mutedBy && channel.mutedBy.includes(currentUser.uid);
+                const isMutedTemporarily = muted1h[channel.id] && muted1h[channel.id] > Date.now();
+                const isMuted = isMutedByFirebase || isMutedTemporarily;
 
-                import('@/src/lib/notification').then(m => {
-                  m.playNotificationSound();
-                  m.showNativeNotification(notificationTitle, msg.content, channel.id, msg.senderPhoto);
-                });
+                if (!isMuted) {
+                  const notificationTitle = channel.type === 'private'
+                    ? msg.senderName
+                    : `${msg.senderName} (#${channel.name})`;
 
-                // Internal toast notification instead of browser notification
-                showToast(
-                  `Nova mensagem em ${channel.type === 'private' ? 'Mensagem Direta' : channel.name}: ${msg.content}`,
-                  'info'
-                );
+                  import('@/src/lib/notification').then(m => {
+                    m.playNotificationSound();
+                    m.showNativeNotification(notificationTitle, msg.content, channel.id, msg.senderPhoto);
+                  });
+
+                  // Internal toast notification instead of browser notification
+                  showToast(
+                    `Nova mensagem em ${channel.type === 'private' ? 'Mensagem Direta' : channel.name}: ${msg.content}`,
+                    'info'
+                  );
+                }
               }
             }
           }
@@ -347,7 +366,41 @@ export default function App() {
     return () => {
       unsubscribes.forEach(unsub => unsub());
     };
-  }, [channels, currentUser, activeChannel, showToast]);
+  }, [channels, currentUser, activeChannel, showToast, muted1h]);
+
+  // Handle notification action from URL query params
+  useEffect(() => {
+    if (!currentUser || channels.length === 0) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const channelId = params.get('channelId');
+    const action = params.get('action');
+    const text = params.get('text');
+
+    if (channelId) {
+      const channel = channels.find(c => c.id === channelId);
+      if (channel) {
+        setActiveChannel(channel);
+
+        if (action === 'reply' && text) {
+          sendMessage(channelId, currentUser, text)
+            .then(() => {
+              showToast(`Resposta enviada para #${channel.name || 'canal'}!`, 'success');
+            })
+            .catch(console.error);
+        } else if (action === 'mute-1h') {
+          setMuted1h(prev => ({ ...prev, [channelId]: Date.now() + 60 * 60 * 1000 }));
+          showToast(`Notificações de #${channel.name || 'canal'} silenciadas por 1 hora.`, 'info');
+        } else if (action === 'mark-read') {
+          setUnreadCounts(prev => ({ ...prev, [channelId]: 0 }));
+        }
+
+        // Clean query params so they don't trigger again on reload/navigation
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+      }
+    }
+  }, [channels, currentUser]);
 
   // Users Listener
   useEffect(() => {
