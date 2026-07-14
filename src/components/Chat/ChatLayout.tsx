@@ -24,7 +24,7 @@ interface ChatLayoutProps {
   unreadChannels: Set<string>;
   onChannelSelect: (channel: Channel) => void;
   onLogout: () => void;
-  onSendMessage: (content: string, file?: File) => Promise<void>;
+  onSendMessage: (content: string, file?: File, onProgress?: (progress: number) => void, replyTo?: any) => Promise<void>;
   messages: Message[];
   isLoadingMessages?: boolean;
   allUsers: UserProfile[];

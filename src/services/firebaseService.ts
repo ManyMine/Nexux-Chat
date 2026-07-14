@@ -1093,7 +1093,7 @@ export const getMessages = (channelId: string, callback: (messages: Message[]) =
   });
 };
 
-export const sendMessage = async (channelId: string, sender: UserProfile, content: string, fileUrl?: string, fileType?: string, statusReply?: any) => {
+export const sendMessage = async (channelId: string, sender: UserProfile, content: string, fileUrl?: string, fileType?: string, statusReply?: any, replyTo?: any) => {
   const messageData: any = {
     channelId,
     senderId: sender.uid,
@@ -1106,6 +1106,7 @@ export const sendMessage = async (channelId: string, sender: UserProfile, conten
   if (fileUrl) messageData.fileUrl = fileUrl;
   if (fileType) messageData.fileType = fileType;
   if (statusReply) messageData.statusReply = statusReply;
+  if (replyTo) messageData.replyTo = replyTo;
   
   try {
     await addDoc(collection(db, CHANNELS_COLLECTION, channelId, MESSAGES_COLLECTION), messageData);

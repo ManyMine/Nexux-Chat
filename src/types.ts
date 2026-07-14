@@ -99,6 +99,12 @@ export interface Message {
     mediaType: string;
     caption?: string;
   };
+  replyTo?: {
+    messageId: string;
+    senderName: string;
+    content: string;
+    senderPhoto?: string;
+  };
 }
 
 export interface Status {

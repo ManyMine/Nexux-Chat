@@ -584,7 +584,7 @@ export default function App() {
     setActiveCall(null);
   };
 
-  const handleSendMessage = async (content: string, file?: File, onProgress?: (progress: number) => void) => {
+  const handleSendMessage = async (content: string, file?: File, onProgress?: (progress: number) => void, replyTo?: any) => {
     if (activeChannel && currentUser) {
       // Immediate UI update could be handled here by appending a temporary message
       // if the application had local state to manage it. 
@@ -598,9 +598,9 @@ export default function App() {
           }
           
           const fileUrl = await uploadFile(file, `messages/${activeChannel.id}/${Date.now()}_${file.name}`, onProgress);
-          await sendMessage(activeChannel.id, currentUser, content, fileUrl, file.type);
+          await sendMessage(activeChannel.id, currentUser, content, fileUrl, file.type, undefined, replyTo);
         } else {
-          await sendMessage(activeChannel.id, currentUser, content);
+          await sendMessage(activeChannel.id, currentUser, content, undefined, undefined, undefined, replyTo);
         }
       } catch (error) {
         console.error("Error sending message:", error);
