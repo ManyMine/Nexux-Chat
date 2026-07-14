@@ -31,6 +31,7 @@ interface SidebarProps {
   onOpenDevTools?: () => void;
   isDevMode?: boolean;
   isLeftHanded?: boolean;
+  unreadCounts?: Record<string, number>;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -52,7 +53,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleDevMode,
   onOpenDevTools,
   isDevMode,
-  isLeftHanded
+  isLeftHanded,
+  unreadCounts
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -451,6 +453,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onOpenDevTools={onOpenDevTools}
         isDevMode={isDevMode}
         activeChannel={activeChannel}
+        unreadCount={unreadCounts ? Object.values(unreadCounts).reduce((acc, count) => acc + count, 0) : 0}
       />
 
       <CreateChannelModal 

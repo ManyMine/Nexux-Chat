@@ -15,6 +15,7 @@ interface UserPanelProps {
   onOpenDevTools?: () => void;
   isDevMode?: boolean;
   activeChannel?: Channel | null;
+  unreadCount?: number;
 }
 
 export const UserPanel: React.FC<UserPanelProps> = ({
@@ -24,7 +25,8 @@ export const UserPanel: React.FC<UserPanelProps> = ({
   onToggleDevMode,
   onOpenDevTools,
   isDevMode,
-  activeChannel
+  activeChannel,
+  unreadCount
 }) => {
   const [timeLeft, setTimeLeft] = useState<string>('');
   const [showStatusMenu, setShowStatusMenu] = useState(false);
@@ -243,6 +245,11 @@ export const UserPanel: React.FC<UserPanelProps> = ({
             className="w-[37px] h-[37px] rounded-full object-cover"
             referrerPolicy="no-referrer"
           />
+          {unreadCount && unreadCount > 0 ? (
+            <div className="absolute -top-1 -right-1 bg-[#f23f42] text-white text-[10px] font-bold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center border-2 border-bg-tertiary shadow-sm animate-pulse z-10">
+              {unreadCount}
+            </div>
+          ) : null}
           <div className={cn(
             "absolute bottom-0 right-0 w-3.5 h-3.5 border-2 border-bg-tertiary rounded-full",
             getStatusColor(user.status)

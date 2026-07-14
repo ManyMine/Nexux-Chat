@@ -40,6 +40,7 @@ interface ChatLayoutProps {
   onEndCall: () => void;
   onClearUnreads: (channelIds: string[]) => void;
   onMuteChannels: (channelIds: string[], mute: boolean) => void;
+  unreadCounts?: Record<string, number>;
 }
 
 export const ChatLayout: React.FC<ChatLayoutProps> = ({
@@ -64,7 +65,8 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   onStartCall,
   onEndCall,
   onClearUnreads,
-  onMuteChannels
+  onMuteChannels,
+  unreadCounts
 }) => {
   const [showGemini, setShowGemini] = useState(false);
   const [isUserSearchOpen, setIsUserSearchOpen] = useState(false);
@@ -249,6 +251,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
           onOpenDevTools={() => setIsDevToolsOpen(true)}
           isDevMode={isDevMode}
           isLeftHanded={isLeftHanded}
+          unreadCounts={unreadCounts}
         />
       </div>
 
