@@ -753,7 +753,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ ...customStyles, zoom: `${zoom}%`, minHeight: `${10000 / zoom}vh` }} className={`min-h-screen ${themeClass} transition-colors duration-300`}>
+    <div style={{ ...customStyles, zoom: `${zoom}%`, height: `${10000 / zoom}dvh` }} className={`min-h-screen flex flex-col ${themeClass} transition-colors duration-300`}>
       <AdhdReminders />
       {settings.autismTheme && (
         <div className="fixed inset-0 z-[9999] pointer-events-none opacity-20 overflow-hidden">

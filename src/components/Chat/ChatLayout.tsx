@@ -203,7 +203,7 @@ export const ChatLayout: React.FC<ChatLayoutProps> = ({
   }, [activeChannel?.background]);
 
   return (
-    <div className={cn("flex h-screen bg-transparent text-text-secondary overflow-hidden font-sans relative", isLeftHanded ? "flex-row-reverse" : "flex-row")}>
+    <div className={cn("flex flex-1 h-full bg-transparent text-text-secondary overflow-hidden font-sans relative", isLeftHanded ? "flex-row-reverse" : "flex-row")}>
       {/* Mobile Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (

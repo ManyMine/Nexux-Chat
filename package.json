@@ -30,6 +30,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@babel/core": "^8.0.1",
+    "@babel/preset-react": "^8.0.1",
+    "@babel/preset-typescript": "^8.0.1",
     "@tailwindcss/vite": "^4.1.14",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-legacy": "^6.0.2",
